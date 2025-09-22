@@ -31,6 +31,47 @@ class ChatHistoryManager:
             {"$set": {"messages": []}}
         )
 
+    def delete_conversation_by_question(self, user_id, question):
+        """Delete a conversation identified by the exact user question.
+
+        This will remove the user message matching `question` and any
+        subsequent assistant messages until the next user message.
+        Returns True if any deletion was performed, False otherwise.
+        """
+        doc = self.collection.find_one({"user_id": user_id})
+        if not doc or 'messages' not in doc:
+            return False
+
+        messages = doc['messages']
+        new_messages = []
+        i = 0
+        deleted = False
+
+        while i < len(messages):
+            msg = messages[i]
+            # Match exact user question
+            if msg.get('role') == 'user' and str(msg.get('message', '')).strip() == str(question).strip():
+                # Skip this user message
+                i += 1
+                deleted = True
+
+                # Skip following assistant messages until next user message
+                while i < len(messages) and messages[i].get('role') == 'assistant':
+                    i += 1
+
+                # continue without appending the skipped messages
+                continue
+
+            # Otherwise keep the message
+            new_messages.append(msg)
+            i += 1
+
+        if deleted:
+            # Update the document with the filtered messages
+            self.collection.update_one({"user_id": user_id}, {"$set": {"messages": new_messages}})
+
+        return deleted
+
 # Example usage:
 # chat_mgr = ChatHistoryManager()
 # chat_mgr.add_message("user123", "user", "Hello!")

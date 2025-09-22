@@ -1,0 +1,24 @@
+Demo Ticket (simulated)
+========================
+{
+  "summary": "The customer reports intermittent failures when saving orders to the system. Error code 503 observed.",
+  "description": "The customer reports intermittent failures when saving orders to the system. Error code 503 observed.",
+  "reporter": "user@example.com",
+  "customer": "AMD",
+  "category": "COPS",
+  "project": "COPS",
+  "work_type": "Task",
+  "cloud_environment_list": "production",
+  "cloud_ops_request_type": "Change Request \u2013 DB",
+  "priority": "Medium",
+  "support_project": "MNHT"
+}
+
+Human-readable summary:
+Summary: The customer reports intermittent failures when saving orders to the system. Error code 503 observed.
+Project: COPS
+Work Type: Task
+Reporter: user@example.com
+Customer: AMD
+
+Full JSON payload included above for demo purposes. No ticket was created in any external system.

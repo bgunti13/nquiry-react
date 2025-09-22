@@ -1,0 +1,44 @@
+============================================================
+🎫 DEMO TICKET - COPS CATEGORY
+============================================================
+
+📋 **Ticket ID:** COPS-805EFD
+📅 **Created:** 2025-09-22 13:20:42
+👤 **Created By:** nQuiry AI Assistant
+🏢 **Customer:** amd
+
+📝 **TICKET DETAILS**
+----------------------------------------
+**Summary:** Support Request: Database not syncing properly for AMD user
+
+**Description:**
+Original Query: Database not syncing properly for AMD user
+
+Additional Details: Sync fails every 30 minutes
+
+⚙️ **SYSTEM POPULATED FIELDS**
+----------------------------------------
+**Project:** COPS
+**Work Type:** Task
+**Priority:** Medium
+**Customer:** amd
+**Support Projects:** MNHT
+**Cloud Environmental List:** production
+**Cloud Operations Request Type:** Change Request â€“ DB
+**Cloud Operations Request Date:** Optional
+
+💼 **CATEGORY-SPECIFIC INFORMATION**
+----------------------------------------
+**Typical COPS Activities:**
+• Deployment and Provisioning
+• Database Operations (Refresh, Changes, Parameters)
+• File/Report Requests
+• Troubleshooting Support
+
+🚨 **IMPORTANT NOTE**
+----------------------------------------
+This is a SIMULATED ticket created for demonstration purposes.
+In production, this would be created in the actual ticketing system
+with proper integration and workflow automation.
+
+============================================================

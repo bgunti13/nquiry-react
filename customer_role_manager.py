@@ -64,6 +64,13 @@ class CustomerRoleMappingManager:
             # Process each sheet
             for sheet_name in sheet_names:
                 print(f"\n📋 Processing sheet: '{sheet_name}'")
+                
+                # Skip non-customer data sheets
+                sheet_name_clean = sheet_name.strip().lower()
+                if sheet_name_clean in ['jira fields', 'mapping', 'config', 'settings', 'field mapping', 'field mappings']:
+                    print(f"   ⏭️  Skipping non-customer sheet: '{sheet_name}'")
+                    continue
+                
                 df = pd.read_excel(self.excel_file_path, sheet_name=sheet_name)
                 
                 if df.empty:

@@ -5,9 +5,14 @@ JIRA REST API Tool for accessing JIRA instances
 import os
 import requests
 import json
+import warnings
 from typing import List, Dict, Any, Optional
 from requests.auth import HTTPBasicAuth
 from dotenv import load_dotenv
+
+# Suppress SSL warnings
+from urllib3.exceptions import InsecureRequestWarning
+warnings.filterwarnings('ignore', category=InsecureRequestWarning)
 
 # Load environment variables
 load_dotenv()
@@ -36,27 +41,87 @@ class JiraTool:
         if self.username and self.api_token:
             self.session.auth = HTTPBasicAuth(self.username, self.api_token)
         
+        # Disable SSL verification to avoid handshake issues with corporate certificates
+        self.session.verify = False
+        
         # Default headers
         self.session.headers.update({
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         })
+        
         # Load customer-org mapping from Excel
+        self._load_customer_mapping()
+    
+    def _extract_text_from_adf(self, adf_content):
+        """
+        Extract plain text from Atlassian Document Format (ADF) content
+        
+        Args:
+            adf_content: ADF content (dict) or plain string
+            
+        Returns:
+            Extracted plain text string
+        """
+        if not adf_content:
+            return ""
+        
+        # If it's already a string, return as-is
+        if isinstance(adf_content, str):
+            return adf_content
+        
+        # If it's not a dict, convert to string
+        if not isinstance(adf_content, dict):
+            return str(adf_content)
+        
+        def extract_text_recursive(node):
+            """Recursively extract text from ADF nodes"""
+            if not isinstance(node, dict):
+                return str(node) if node else ""
+            
+            text_parts = []
+            
+            # Handle text nodes
+            if node.get('type') == 'text':
+                return node.get('text', '')
+            
+            # Handle content arrays
+            if 'content' in node and isinstance(node['content'], list):
+                for child in node['content']:
+                    text_parts.append(extract_text_recursive(child))
+            
+            # Handle other known node types
+            node_type = node.get('type', '')
+            if node_type in ['paragraph', 'doc', 'blockquote']:
+                # These typically contain content
+                pass
+            elif node_type == 'hardBreak':
+                text_parts.append('\n')
+            elif node_type == 'listItem':
+                text_parts.append('• ')
+            
+            return ''.join(text_parts)
+        
+        try:
+            extracted_text = extract_text_recursive(adf_content)
+            return extracted_text.strip()
+        except Exception as e:
+            # Fallback to string conversion
+            return str(adf_content)
+    
+    def _load_customer_mapping(self):
+        """Load customer-org mapping from Excel"""
         self.customer_org_map = {}
         try:
             import pandas as pd
             excel_path = os.path.join(os.path.dirname(__file__), '..', 'LS-HT Customer Info.xlsx')
-            print(f"[DEBUG] Attempting to load Excel from: {excel_path}")
             
             # Read from both HT and LS sheets
             for sheet_name in ['HT', 'LS']:
                 try:
                     df = pd.read_excel(excel_path, sheet_name=sheet_name)
-                    print(f"[DEBUG] Excel {sheet_name} sheet loaded. Shape: {df.shape}")
-                    print(f"[DEBUG] {sheet_name} sheet columns: {list(df.columns)}")
                     
                     # Build mapping from this sheet
-                    sheet_mappings = 0
                     for _, row in df.iterrows():
                         customer = str(row.get('Customer', '')).strip().lower().replace(' ', '')
                         # Try different column name variations
@@ -65,79 +130,54 @@ class JiraTool:
                                    str(row.get('JIRA Organization ', '')).strip())
                         if customer and jira_org and jira_org != 'nan':
                             self.customer_org_map[customer] = jira_org
-                            sheet_mappings += 1
-                    
-                    print(f"[DEBUG] Loaded {sheet_mappings} mappings from {sheet_name} sheet")
                     
                 except Exception as sheet_error:
-                    print(f"[DEBUG] Could not load {sheet_name} sheet: {sheet_error}")
+                    print(f"Could not load {sheet_name} sheet: {sheet_error}")
             
-            print(f"[DEBUG] Total mappings loaded from both sheets: {len(self.customer_org_map)}")
-            print(f"[DEBUG] First few mappings:")
-            for i, (k, v) in enumerate(list(self.customer_org_map.items())[:5]):
-                print(f"  Customer: '{k}' -> JIRA Org: '{v}'")
-            print(f"[DEBUG] Total mappings loaded: {len(self.customer_org_map)}")
+            print(f"✅ Loaded {len(self.customer_org_map)} customer mappings")
+            
         except Exception as e:
             print(f"⚠️ Could not load customer-org mapping from Excel: {e}")
-            import traceback
-            traceback.print_exc()
     
     def reload_customer_mapping(self):
         """Reload customer-org mapping from Excel (for debugging)"""
-        self.customer_org_map = {}
-        try:
-            import pandas as pd
-            excel_path = os.path.join(os.path.dirname(__file__), '..', 'LS-HT Customer Info.xlsx')
-            print(f"[DEBUG] Attempting to load Excel from: {excel_path}")
-            
-            # Read from both HT and LS sheets
-            for sheet_name in ['HT', 'LS']:
-                try:
-                    df = pd.read_excel(excel_path, sheet_name=sheet_name)
-                    print(f"[DEBUG] Excel {sheet_name} sheet loaded. Shape: {df.shape}")
-                    print(f"[DEBUG] {sheet_name} sheet columns: {list(df.columns)}")
-                    
-                    # Build mapping from this sheet
-                    sheet_mappings = 0
-                    for _, row in df.iterrows():
-                        original_customer = str(row.get('Customer', '')).strip()
-                        customer = original_customer.lower().replace(' ', '')
-                        # Try different column name variations
-                        jira_org = (str(row.get('JIRA Organisation', '')).strip() or 
-                                   str(row.get('JIRA Organization', '')).strip() or
-                                   str(row.get('JIRA Organization ', '')).strip())
-                        if 'amd' in original_customer.lower():
-                            print(f"[DEBUG] Found AMD entry: Original='{original_customer}' -> Normalized='{customer}', JIRA Org='{jira_org}'")
-                        if customer and jira_org and jira_org != 'nan':
-                            self.customer_org_map[customer] = jira_org
-                            sheet_mappings += 1
-                    
-                    print(f"[DEBUG] Loaded {sheet_mappings} mappings from {sheet_name} sheet")
-                    
-                except Exception as sheet_error:
-                    print(f"[DEBUG] Could not load {sheet_name} sheet: {sheet_error}")
-            
-            print(f"[DEBUG] Total mappings loaded from both sheets: {len(self.customer_org_map)}")
-            print(f"[DEBUG] First few mappings:")
-            for i, (k, v) in enumerate(list(self.customer_org_map.items())[:5]):
-                print(f"  Customer: '{k}' -> JIRA Org: '{v}'")
-            print(f"[DEBUG] Total mappings loaded: {len(self.customer_org_map)}")
-        except Exception as e:
-            print(f"⚠️ Could not load customer-org mapping from Excel: {e}")
-            import traceback
-            traceback.print_exc()
+        self._load_customer_mapping()
 
     def test_connection(self) -> bool:
-        """Test connection to JIRA API"""
-        try:
-            if not all([self.base_url, self.username, self.api_token]):
-                return False
-            
-            response = self.session.get(f"{self.base_url}myself")
-            return response.status_code == 200
-        except Exception as e:
-            print(f"JIRA connection test failed: {e}")
-            return False
+        """Test connection to JIRA API with retry logic"""
+        max_retries = 3
+        timeout_seconds = 30
+        
+        for attempt in range(max_retries):
+            try:
+                if not all([self.base_url, self.username, self.api_token]):
+                    return False
+                
+                response = self.session.get(f"{self.base_url}myself", timeout=timeout_seconds)
+                
+                if response.status_code == 200:
+                    return True
+                else:
+                    print(f"🔧 JIRA Debug: Connection failed with status {response.status_code}: {response.text[:200]}")
+                    
+            except requests.exceptions.Timeout as e:
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(2)
+                    continue
+                else:
+                    print("🔧 JIRA Debug: All attempts failed due to timeout")
+                    
+            except Exception as e:
+                print(f"JIRA connection test failed: {e}")
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(2)
+                    continue
+                else:
+                    break
+                    
+        return False
     
     def _get_organization_variations(self, organization: str) -> List[str]:
         """
@@ -147,26 +187,18 @@ class JiraTool:
         Returns:
             List of organization name variations to search for
         """
-        # Force reload mapping for debugging (remove this after fixing)
+        # Reload mapping if empty
         if not self.customer_org_map:
-            print("[DEBUG] Customer mapping is empty, forcing reload...")
             self.reload_customer_mapping()
             
         variations = [organization]
         # Normalize lookup value
         org_key = organization.strip().lower().replace(' ', '')
-        print(f"[DEBUG] Looking up normalized key: '{org_key}' from original: '{organization}'")
-        print(f"[DEBUG] Available keys in mapping: {list(self.customer_org_map.keys())}")
-        
-        # Check for partial matches
-        partial_matches = [k for k in self.customer_org_map.keys() if 'amd' in k.lower()]
-        if partial_matches:
-            print(f"[DEBUG] Found AMD-related keys: {partial_matches}")
         
         mapped_jira_org = self.customer_org_map.get(org_key)
-        print(f"[DEBUG] Mapped JIRA org result: '{mapped_jira_org}'")
         if mapped_jira_org:
             variations.append(mapped_jira_org)
+            
         # Add common variations (spaces, cases, etc.)
         base_variations = [
             organization.replace(" ", "-"),
@@ -175,6 +207,7 @@ class JiraTool:
             organization.upper(),
             organization.lower()
         ]
+        
         if mapped_jira_org:
             base_variations.extend([
                 mapped_jira_org.replace(" ", "-"),
@@ -183,10 +216,10 @@ class JiraTool:
                 mapped_jira_org.upper(),
                 mapped_jira_org.lower()
             ])
+            
         variations.extend(base_variations)
         # Remove duplicates and return
         result = list(set([v for v in variations if v]))
-        print(f"[DEBUG] Organization variations for '{organization}' (mapped: '{mapped_jira_org}'):", result)
         return result
 
     def search_issues_by_organization(self, query: str, organization: str, limit: int = 20) -> List[Dict[str, Any]]:
@@ -266,12 +299,13 @@ class JiraTool:
                 'jql': jql_query,
                 'maxResults': limit,
                 'fields': ','.join(fields),
-                'expand': 'changelog,renderedFields'
+                'expand': 'changelog,renderedFields,comment'
             }
             
             response = self.session.get(
                 f"{self.base_url}search/jql",
-                params=params
+                params=params,
+                timeout=30
             )
             
             if response.status_code == 200:
@@ -287,9 +321,11 @@ class JiraTool:
                         comment_data = fields['comment']
                         
                         for comment in comment_data.get('comments', []):
-                            comment_body = comment.get('body', '')
+                            comment_body_raw = comment.get('body', '')
+                            comment_body = self._extract_text_from_adf(comment_body_raw)
                             comment_author = comment.get('author', {}).get('displayName', 'Unknown')
                             comment_created = comment.get('created', '')
+                            
                             comments.append({
                                 'author': comment_author,
                                 'body': comment_body,
@@ -306,9 +342,8 @@ class JiraTool:
                         if resolution_desc and resolution_desc != resolution_name:
                             resolution_info += f": {resolution_desc}"
                     
-                    description = fields.get('description', '') or ''
-                    if isinstance(description, dict):
-                        description = str(description)
+                    description_raw = fields.get('description', '') or ''
+                    description = self._extract_text_from_adf(description_raw)
                     
                     # Create AI-powered resolution summary from ALL comments
                     comments_text = ""
@@ -318,10 +353,7 @@ class JiraTool:
                         # Collect all comments for AI analysis
                         all_comments_text = ""
                         for comment in comments:
-                            comment_body = comment.get('body', '')
-                            if isinstance(comment_body, dict):
-                                comment_body = str(comment_body)
-                            
+                            comment_body = comment.get('body', '')  # Already extracted as plain text
                             comment_author = comment.get('author', 'Unknown')
                             comment_date = comment.get('created', '')
                             all_comments_text += f"\n[{comment_author} - {comment_date}]: {comment_body}\n"
@@ -341,16 +373,12 @@ class JiraTool:
                                 
                                 if resolution_summary:
                                     comments_text = resolution_summary
-                                    print(f"🤖 AWS Bedrock extracted comprehensive resolution for {issue.get('key', 'Unknown')}")
                                 else:
                                     # Fallback to enhanced rule-based extraction
                                     comments_text = self._rule_based_resolution_extraction(all_comments_text)
-                                    print(f"📋 Using rule-based extraction for {issue.get('key', 'Unknown')}")
                                     
                             except Exception as e:
                                 print(f"⚠️ AI resolution extraction failed for {issue.get('key', '')}: {e}")
-                                # Final fallback to recent comments
-                                comments_text = self._fallback_comments_extraction(comments)
                                 # Fallback to recent comments
                                 comments_text = self._fallback_comments_extraction(comments)
                     
@@ -457,11 +485,8 @@ class JiraTool:
             
             if 'content' in response_body and response_body['content']:
                 ai_summary = response_body['content'][0]['text']
-                
-                print(f"🤖 AWS Bedrock resolution extraction completed for {ticket_key}")
                 return f"\n\n--- AI-EXTRACTED RESOLUTION SUMMARY ---\n{ai_summary}"
             else:
-                print(f"⚠️ Bedrock returned empty response for {ticket_key}")
                 return self._rule_based_resolution_extraction(comments_text)
                 
         except ClientError as e:
@@ -584,9 +609,7 @@ class JiraTool:
             
             for comment in recent_comments:
                 author = comment.get('author', 'Unknown')
-                body = comment.get('body', '')
-                if isinstance(body, dict):
-                    body = str(body)
+                body = comment.get('body', '')  # Already extracted as plain text
                 
                 comments_text += f"\n💬 [{author}]: {body[:200]}...\n"
             
@@ -638,12 +661,13 @@ class JiraTool:
                 'jql': jql_query,
                 'maxResults': limit,
                 'fields': ','.join(fields),
-                'expand': 'changelog,renderedFields'
+                'expand': 'changelog,renderedFields,comment'
             }
             
             response = self.session.get(
                 f"{self.base_url}search/jql",
-                params=params
+                params=params,
+                timeout=30
             )
             
             if response.status_code == 200:
@@ -662,7 +686,8 @@ class JiraTool:
                         max_results = comment_data.get('maxResults', 0)
                         
                         for comment in comment_data.get('comments', []):
-                            comment_body = comment.get('body', '')
+                            comment_body_raw = comment.get('body', '')
+                            comment_body = self._extract_text_from_adf(comment_body_raw)
                             comment_author = comment.get('author', {}).get('displayName', 'Unknown')
                             comment_created = comment.get('created', '')
                             comments.append({
@@ -703,10 +728,8 @@ class JiraTool:
                                     changelog_resolution += f"\n[Resolved by {author} on {created[:10]}]: {resolution_change}"
                     
                     # Combine description and comments for comprehensive content
-                    description = fields.get('description', '') or ''
-                    # Handle case where description might be a dict (Atlassian Document Format)
-                    if isinstance(description, dict):
-                        description = str(description)
+                    description_raw = fields.get('description', '') or ''
+                    description = self._extract_text_from_adf(description_raw)
                     
                     comments_text = ""
                     if comments:
@@ -796,7 +819,8 @@ class JiraTool:
             
             response = self.session.get(
                 f"{self.base_url}issue/{issue_key}",
-                params={'expand': 'changelog,comments'}
+                params={'expand': 'changelog,comments'},
+                timeout=30
             )
             
             if response.status_code == 200:
@@ -882,7 +906,8 @@ class JiraTool:
             
             response = self.session.post(
                 f"{self.base_url}issue",
-                data=json.dumps(payload)
+                data=json.dumps(payload),
+                timeout=30
             )
             
             if response.status_code == 201:
@@ -904,7 +929,7 @@ class JiraTool:
             if not self.test_connection():
                 return []
             
-            response = self.session.get(f"{self.base_url}project")
+            response = self.session.get(f"{self.base_url}project", timeout=30)
             
             if response.status_code == 200:
                 projects = response.json()

@@ -1,10 +1,21 @@
 """
 nQuiry - Intelligent Query Processing System
-New Flow: JIRA (organization-specific) → MindTouch → Create Ticket
+New Flow: JIRA (organization-specific) → MindTou            else:
+                # Use Bedrock to evaluate if JIRA results are sufficient
+                query = state.get('query', '')
+                bedrock_decision = self.analyze_with_bedrock(query, search_results, 'JIRA')
+                
+                if bedrock_decision.get('action') == 'create_ticket':
+                    print("📖 JIRA results insufficient - fallback to MindTouch")
+                    return "search_mindtouch"
+                else:
+                    print("🎯 JIRA results sufficient - formatting response")
+                    return "format_response"→ Create Ticket
 """
 
-from typing import Dict, List, Any, Optional, TypedDict
-
+from typing import Dict, List, Any, Optional, TypedDict, Tuple
+import boto3
+import json
 from langgraph.graph import StateGraph, START, END
 
 from semantic_search import SemanticSearch
@@ -22,6 +33,7 @@ class QueryState(TypedDict):
     """State model for the LangGraph workflow"""
     query: str
     context: Optional[str]
+    user_email: Optional[str]
     classified_source: Optional[str]
     search_results: List[Dict]
     similarity_scores: List[float]
@@ -74,6 +86,9 @@ class IntelligentQueryProcessor:
         # Initialize the LangGraph
         self.graph = self._build_langgraph()
 
+        # Initialize AWS Bedrock client
+        self.bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')  # Replace with your region
+
     def _build_langgraph(self):
         """Build the LangGraph workflow with new routing: JIRA -> MindTouch -> Create Ticket"""
 
@@ -94,8 +109,32 @@ class IntelligentQueryProcessor:
                 print("📖 No JIRA results found - fallback to MindTouch")
                 return "search_mindtouch"
             else:
-                print("� JIRA results found - formatting response")
-                return "format_response"
+                # Use Bedrock to evaluate if JIRA results are sufficient
+                query = state.get('query', '')
+                bedrock_decision = self.analyze_with_bedrock(query, search_results, 'JIRA')
+                
+                # Check the formatted response for insufficient content indicators
+                formatted_response = bedrock_decision.get('formatted_response', '')
+                insufficient_indicators = [
+                    "no specific resolution steps are provided",
+                    "cannot provide actionable steps", 
+                    "no resolution details are included",
+                    "more context is needed",
+                    "further investigation",
+                    "does not contain complete details",
+                    "without more details",
+                    "unfortunately, the provided search result does not contain"
+                ]
+                
+                response_lower = formatted_response.lower()
+                has_insufficient_content = any(indicator in response_lower for indicator in insufficient_indicators)
+                
+                if bedrock_decision.get('action') == 'create_ticket' or has_insufficient_content:
+                    print("📖 JIRA results insufficient or contain limitation phrases - fallback to MindTouch")
+                    return "search_mindtouch"
+                else:
+                    print("🎯 JIRA results sufficient - formatting response")
+                    return "format_response"
 
         def should_create_ticket_or_format(state) -> str:
             """Decide whether to create ticket or format response"""
@@ -172,13 +211,14 @@ class IntelligentQueryProcessor:
                 print("� Ranking JIRA results with semantic search...")
                 ranked_docs, scores = self.semantic_search.search_documents(documents, query)
                 
-                state['search_results'] = ranked_docs
-                state['similarity_scores'] = scores
+                # Combine ranked_docs and scores into a list of tuples
+                state['search_results'] = list(zip(ranked_docs, scores))
+                state['last_search_source'] = 'JIRA'  # Track the source for response formatting
                 print(f"✅ Ranked {len(ranked_docs)} JIRA results")
                 
                 # Display brief summary of top results
-                for i, doc in enumerate(ranked_docs[:3]):
-                    print(f"   {i+1}. {doc.get('key', 'Unknown')}: {doc.get('title', 'No title')[:60]}...")
+                for i, (doc, score) in enumerate(state['search_results'][:3]):
+                    print(f"   {i+1}. {doc.get('key', 'Unknown')}: {doc.get('title', 'No title')[:60]}... (Score: {score:.2f})")
                     
             else:
                 state['search_results'] = []
@@ -206,10 +246,26 @@ class IntelligentQueryProcessor:
             if documents:
                 print(f"📊 MindTouch search completed: {len(documents)} pages")
                 
+                # Check if we have existing JIRA results to combine with
+                existing_results = state.get('search_results', [])
+                existing_scores = state.get('similarity_scores', [])
+                
                 # MindTouch returns already processed/formatted documents
-                # No additional semantic search needed since MindTouch uses LLM completion
-                state['search_results'] = documents
-                state['similarity_scores'] = [1.0] * len(documents)  # All results are relevant
+                # Convert to the expected format: list of (document, similarity_score) tuples
+                mindtouch_scores = [doc.get('score', 1.0) for doc in documents]
+                mindtouch_results = list(zip(documents, mindtouch_scores))
+                
+                if existing_results:
+                    # Combine JIRA and MindTouch results
+                    print(f"🔗 Combining {len(existing_results)} JIRA results with {len(mindtouch_results)} MindTouch results")
+                    state['search_results'] = existing_results + mindtouch_results
+                    state['similarity_scores'] = existing_scores + mindtouch_scores
+                    state['last_search_source'] = 'MULTI'  # Indicate mixed sources
+                else:
+                    # Only MindTouch results
+                    state['search_results'] = mindtouch_results
+                    state['similarity_scores'] = mindtouch_scores
+                    state['last_search_source'] = 'MINDTOUCH'
                 
                 print(f"✅ MindTouch results ready for formatting")
             else:
@@ -225,46 +281,180 @@ class IntelligentQueryProcessor:
 
         return state
 
-    def format_response_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """LangGraph Node: Format the search results"""
+
+
+    def analyze_with_bedrock(self, query: str, search_results: List[Tuple[Dict, float]], source: str = "MULTI") -> Dict:
+        """
+        Use AWS Bedrock to analyze search results and decide next steps.
+        """
         try:
-            print("✍️  Formatting response...")
+            # First, format the search results into a readable format
+            formatted_response = self.response_formatter.format_search_results(query, search_results, source)
 
-            search_results = state.get('search_results', [])
-            similarity_scores = state.get('similarity_scores', [])
+            print("🤖 Formatted Bedrock Response:")
+            print(formatted_response)
+
+            # Now use LLM to evaluate if this response adequately answers the query
+            evaluation_prompt = f"""
+You are an expert system evaluating whether a search result adequately answers a user's query.
+
+USER QUERY: {query}
+
+SEARCH RESULT RESPONSE:
+{formatted_response}
+
+Please analyze the above response and determine if it provides actionable resolution steps.
+
+The response should be considered INSUFFICIENT if it contains phrases like:
+- "Unfortunately, no specific resolution steps are provided"
+- "I cannot provide actionable steps"
+- "no resolution details are included"
+- "More context is needed"
+- "Further investigation...is required"
+- "does not contain complete details"
+- "without more details"
+- Similar phrases indicating lack of actionable information
+
+The response should be considered SUFFICIENT only if it provides:
+- Clear, step-by-step resolution instructions
+- Specific actions the user can take
+- Complete troubleshooting guidance
+- Definitive answers to the user's question
+
+Respond with ONLY one of these two options:
+- SUFFICIENT: if the response provides clear, actionable resolution steps
+- INSUFFICIENT: if the response lacks specific resolution steps or contains uncertainty phrases
+
+Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
+"""
+
+            # Call Bedrock to evaluate the response quality
+            body = {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 50,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": evaluation_prompt
+                    }
+                ]
+            }
             
-            # Determine source based on current workflow stage
-            # Since we have a sequential flow, we can track which search was last executed
-            if search_results:
-                # Check if results have JIRA-specific fields to identify source
-                first_result = search_results[0] if isinstance(search_results, list) and search_results else {}
-                if isinstance(first_result, dict) and first_result.get('key') and 'PROJ-' in str(first_result.get('key', '')):
-                    source = 'JIRA'
-                else:
-                    source = 'MINDTOUCH'
-            else:
-                source = 'UNKNOWN'
-
-            results_with_scores = list(zip(search_results, similarity_scores)) if similarity_scores else [(result, 1.0) for result in search_results]
-            formatted_response = self.response_formatter.format_search_results(
-                query=state.get('query', ''),
-                results=results_with_scores,
-                source=source,
-                context=state.get('context', '')
+            response = self.response_formatter.bedrock_client.invoke_model(
+                modelId=self.response_formatter.model_id,
+                body=json.dumps(body),
+                contentType='application/json'
             )
-
-            state['formatted_response'] = formatted_response
-            print(f"✅ Response formatted successfully from {source}")
+            
+            response_body = json.loads(response['body'].read())
+            
+            if 'content' in response_body and len(response_body['content']) > 0:
+                decision = response_body['content'][0]['text'].strip().upper()
+                
+                if "SUFFICIENT" in decision:
+                    print("🤖 Bedrock evaluation: Response is SUFFICIENT")
+                    return {"action": "format_response", "formatted_response": formatted_response}
+                else:
+                    print("🤖 Bedrock evaluation: Response is INSUFFICIENT")
+                    return {"action": "create_ticket", "formatted_response": formatted_response}
+            else:
+                print("❌ No response from Bedrock evaluation")
+                return {"action": "create_ticket", "formatted_response": formatted_response}
 
         except Exception as e:
-            print(f"❌ Error formatting response: {e}")
+            print(f"❌ Error invoking Bedrock model: {e}")
+            return {"action": "error", "error": str(e)}
+
+    def format_response_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """LangGraph Node: Format the search results with Bedrock reasoning"""
+        try:
+            print("✍️  Formatting response with AWS Bedrock reasoning...")
+
+            search_results = state.get('search_results', [])
+            query = state.get('query', '')
+
+            # Determine the source based on state or results
+            source = state.get('last_search_source', 'MULTI')
+            
+            # Use AWS Bedrock to analyze the results
+            bedrock_decision = self.analyze_with_bedrock(query, search_results, source)
+
+            if bedrock_decision.get('action') == 'create_ticket':
+                print("🤖 Bedrock suggests creating a ticket due to insufficient information.")
+                state['formatted_response'] = "The results do not fully address your query. Would you like to create a ticket?"
+                state['ticket_creation_suggested'] = True
+            elif bedrock_decision.get('action') == 'format_response':
+                print("🤖 Bedrock suggests the results are sufficient.")
+                formatted_response = self.response_formatter.format_search_results(
+                    query=query,
+                    results=search_results,
+                    source=state.get('classified_source', '')
+                )
+                
+                # Secondary check: Even if Bedrock says sufficient, check for insufficient content indicators
+                insufficient_indicators = [
+                    "no specific resolution steps are provided",
+                    "cannot provide actionable steps", 
+                    "no resolution details are included",
+                    "more context is needed",
+                    "further investigation",
+                    "does not contain complete details",
+                    "without more details",
+                    "unfortunately, the provided search result does not contain"
+                ]
+                
+                response_lower = formatted_response.lower()
+                if any(indicator in response_lower for indicator in insufficient_indicators):
+                    print("🤖 Secondary check: Response contains insufficient information indicators - suggesting ticket creation")
+                    state['formatted_response'] = formatted_response + "\n\n❓ If you are not satisfied with this response, would you like me to create a support ticket for further assistance?"
+                    state['ticket_creation_suggested'] = True
+                else:
+                    state['formatted_response'] = formatted_response
+                    state['ticket_creation_suggested'] = False
+            else:
+                print("❌ Bedrock returned an error.")
+                state['error'] = bedrock_decision.get('error', 'Unknown error')
+                state['formatted_response'] = "❌ Error analyzing results with Bedrock."
+
+            print(f"✅ Response formatted successfully with Bedrock decision: {bedrock_decision.get('action')}")
+
+        except Exception as e:
+            print(f"❌ Error formatting response with Bedrock: {e}")
             state['error'] = f"Response formatting error: {e}"
             state['formatted_response'] = f"Error formatting response: {e}"
 
         return state
 
     def create_ticket_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """LangGraph Node: Create support ticket using custom JIRA tool"""
+        """LangGraph Node: Create simulated support ticket"""
+        try:
+            # Get user information from state
+            user_email = state.get('user_email', '')
+            query = state.get('query', '')
+            
+            print(f"🎫 Creating simulated support ticket for query: {query}")
+            
+            # Use the ResponseFormatter to create a simulated ticket
+            ticket_response = self.response_formatter.create_simulated_ticket(
+                query=query,
+                user_email=user_email,
+                additional_description="User requested ticket creation after insufficient search results"
+            )
+            
+            state['ticket_created'] = ticket_response
+            state['formatted_response'] = ticket_response
+            
+            print("✅ Simulated ticket created successfully")
+            
+        except Exception as e:
+            print(f"❌ Error creating simulated ticket: {e}")
+            state['error'] = f"Ticket creation error: {e}"
+            state['formatted_response'] = f"❌ Error creating support ticket: {e}"
+
+        return state
+    
+    def create_ticket_node_interactive(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """LangGraph Node: Create support ticket with user interaction (legacy)"""
         try:
             search_results = state.get('search_results', [])
             similarity_scores = state.get('similarity_scores', [])
@@ -282,7 +472,15 @@ class IntelligentQueryProcessor:
             # If there are search results, show them first (console-only preview)
             if search_results:
                 print(f"\n📊 Found {len(search_results)} related {source} results:")
-                results_with_scores = list(zip(search_results, similarity_scores))
+                
+                # Check if search_results is already in tuple format (document, score)
+                if search_results and isinstance(search_results[0], tuple) and len(search_results[0]) == 2:
+                    # Already in the correct format
+                    results_with_scores = search_results
+                else:
+                    # Convert from list of documents to list of tuples
+                    results_with_scores = list(zip(search_results, similarity_scores))
+                    
                 formatted_results = self.response_formatter.format_search_results(
                     query=state.get('query', ''),
                     results=results_with_scores,
@@ -292,7 +490,7 @@ class IntelligentQueryProcessor:
 
             # Ask user if they want to create a new ticket
             print("\n🎫 Would you like to create a new JIRA ticket for this query?")
-            create_ticket = input("Create ticket? (y/n): ").strip().lower()
+            create_ticket = input("Create ticket? (y/n): ")
 
             if create_ticket in ['y', 'yes', '1', 'true']:
                 print("🎫 Creating support ticket via JIRA REST API...")
@@ -332,7 +530,14 @@ class IntelligentQueryProcessor:
             else:
                 # User declined to create ticket
                 if search_results:
-                    results_with_scores = list(zip(search_results, similarity_scores))
+                    # Check if search_results is already in tuple format (document, score)
+                    if search_results and isinstance(search_results[0], tuple) and len(search_results[0]) == 2:
+                        # Already in the correct format
+                        results_with_scores = search_results
+                    else:
+                        # Convert from list of documents to list of tuples
+                        results_with_scores = list(zip(search_results, similarity_scores))
+                        
                     state['formatted_response'] = self.response_formatter.format_search_results(
                         query=state.get('query', ''),
                         results=results_with_scores,
@@ -348,11 +553,358 @@ class IntelligentQueryProcessor:
 
         return state
 
+    def is_ticket_creation_request(self, query: str, previous_response: str = "") -> bool:
+        """
+        Detect if the user is requesting ticket creation, either in response to a prompt
+        or as an explicit request after receiving information
+        
+        Args:
+            query: Current user query
+            previous_response: Previous bot response to check for ticket creation prompt
+            
+        Returns:
+            True if this appears to be a ticket creation request
+        """
+        query_lower = query.lower().strip()
+        
+        # EXPLICIT TICKET CREATION REQUESTS - These work anytime, even without prompts
+        explicit_ticket_requests = [
+            'create ticket', 'create a ticket', 'make ticket', 'make a ticket',
+            'submit ticket', 'submit a ticket', 'open ticket', 'open a ticket',
+            'file ticket', 'file a ticket', 'ticket creation', 'support ticket',
+            'create support ticket', 'open support ticket', 'submit support ticket',
+            'i need a ticket', 'i want a ticket', 'can you create a ticket',
+            'please create a ticket', 'help me create a ticket',
+            'log a ticket', 'raise a ticket', 'escalate to ticket'
+        ]
+        
+        # Check for explicit ticket creation requests (these work independently)
+        for request in explicit_ticket_requests:
+            if request in query_lower:
+                print(f"🎫 Detected explicit ticket creation request: '{request}'")
+                return True
+        
+        # AFFIRMATIVE RESPONSES TO SYSTEM PROMPTS
+        affirmative_responses = [
+            'yes', 'y', 'yeah', 'yep', 'sure', 'ok', 'okay', 'alright',
+            'please', 'yes please', 'go ahead', 'proceed', 'continue'
+        ]
+        
+        # Check if previous response contained a ticket creation prompt
+        if previous_response:
+            ticket_prompts = [
+                'would you like me to create a support ticket',
+                'would you like to create a ticket',
+                'create a support ticket for assistance',
+                'would you like me to create',
+                'create a ticket',
+                'if you are not satisfied',
+                'for further assistance'
+            ]
+            
+            if any(prompt in previous_response.lower() for prompt in ticket_prompts):
+                # If previous response had a ticket prompt and current query is affirmative
+                if query_lower in affirmative_responses:
+                    print(f"🎫 Detected affirmative response to ticket creation prompt")
+                    return True
+        
+        # Check if query is a simple affirmative response without context (likely a yes to ticket creation)
+        if query_lower in affirmative_responses and len(query_lower) <= 8:
+            # Only treat as ticket request if there was some kind of suggestion in previous response
+            if previous_response and ('ticket' in previous_response.lower() or 'assistance' in previous_response.lower()):
+                print(f"🎫 Detected simple affirmative response with ticket context")
+                return True
+        
+        return False
+
+    def is_field_information_response(self, query: str, previous_response: str = "") -> bool:
+        """
+        Detect if the user is providing field information for ticket creation
+        
+        Args:
+            query: Current user query
+            previous_response: Previous bot response to check for field collection prompt
+            
+        Returns:
+            True if this appears to be field information
+        """
+        # Check if previous response was asking for ticket fields
+        if previous_response:
+            field_indicators = [
+                'additional information required',
+                'please provide the following details',
+                'area affected',
+                'version affected',
+                'reported environment'
+            ]
+            
+            if any(indicator in previous_response.lower() for indicator in field_indicators):
+                # Check if current response contains field-like information
+                query_lower = query.lower()
+                
+                # Look for field patterns
+                field_patterns = [
+                    'area:', 'version:', 'environment:', 
+                    'affected version', 'reported environment',
+                    # Or version numbers
+                    r'\d+\.\d+',
+                    # Or environment names
+                    'production', 'staging', 'test', 'development'
+                ]
+                
+                import re
+                for pattern in field_patterns:
+                    if ':' in pattern:
+                        if pattern in query_lower:
+                            return True
+                    else:
+                        if re.search(pattern, query_lower):
+                            return True
+                
+                # If response has multiple lines or structured content, likely field info
+                if len(query.split('\n')) > 1 or len(query.split()) > 5:
+                    return True
+        
+        return False
+
+    def process_field_information_response(self, user_id: str, query: str, history: List = None) -> Dict[str, Any]:
+        """
+        Process user response containing field information for ticket creation
+        
+        Args:
+            user_id: User identifier (email)
+            query: Current user query containing field information
+            history: Chat history to get context
+            
+        Returns:
+            Response with field processing results or ticket creation
+        """
+        try:
+            print(f"📝 Processing field information from user: {user_id}")
+            
+            # Parse field information from user response
+            collected_fields = self.response_formatter.parse_field_response(query)
+            
+            # Find the original query from history
+            original_query = ""
+            if history and len(history) >= 3:
+                # Look back through history to find the original user query
+                for i in range(len(history) - 3, -1, -1):
+                    msg = history[i]
+                    if msg.get('type') == 'user' or msg.get('role') == 'user':
+                        content = msg.get('content', msg.get('message', ''))
+                        # Skip if this is field information or affirmative response
+                        if not self.is_field_information_response(content, "") and not self.is_ticket_creation_request(content, ""):
+                            original_query = content
+                            break
+            
+            print(f"🔍 Original query identified: {original_query}")
+            print(f"📋 Fields collected: {collected_fields}")
+            
+            # Try to create ticket with collected fields
+            ticket_response = self.response_formatter.create_simulated_ticket(
+                query=original_query or query,
+                user_email=user_id,
+                additional_description="User provided required field information",
+                collected_fields=collected_fields
+            )
+            
+            # Check if response is asking for more fields (field collection prompt)
+            if "Additional Information Required" in ticket_response:
+                # Still need more fields
+                response_msg = f"📝 Thank you for the information! {ticket_response}"
+            else:
+                # Ticket was created successfully
+                response_msg = ticket_response
+            
+            # Add to chat history
+            self.chat_history_manager.add_message(user_id, "user", query)
+            self.chat_history_manager.add_message(user_id, "assistant", response_msg)
+            
+            return {
+                "query": query,
+                "source": "FIELD_COLLECTION" if "Additional Information Required" in ticket_response else "TICKET_CREATION",
+                "results_found": 1,
+                "response": response_msg,
+                "ticket_created": ticket_response if "Additional Information Required" not in ticket_response else None,
+                "error": None,
+                "chat_history": self.chat_history_manager.get_history(user_id)
+            }
+            
+        except Exception as e:
+            error_msg = f"Error processing field information: {e}"
+            print(f"❌ {error_msg}")
+            
+            error_response = f"❌ Sorry, I had trouble processing your field information. Please try again or provide the information in this format:\n\nArea: [Your area]\nAffected Version: [Version number]\nReported Environment: [Environment name]"
+            
+            # Add to chat history
+            self.chat_history_manager.add_message(user_id, "user", query)
+            self.chat_history_manager.add_message(user_id, "assistant", error_response)
+            
+            return {
+                "query": query,
+                "source": "FIELD_COLLECTION_ERROR",
+                "results_found": 0,
+                "response": error_response,
+                "ticket_created": None,
+                "error": error_msg,
+                "chat_history": self.chat_history_manager.get_history(user_id)
+            }
+
+    def process_ticket_creation_request(self, user_id: str, query: str, original_query: str = "") -> Dict[str, Any]:
+        """
+        Process a ticket creation request
+        
+        Args:
+            user_id: User identifier (email)
+            query: Current user query (could be "yes" or explicit ticket request)
+            original_query: The original query that led to the ticket creation prompt
+            
+        Returns:
+            Response with ticket creation results
+        """
+        try:
+            print(f"🎫 Processing ticket creation request for user: {user_id}")
+            
+            # Determine the query to use for ticket creation
+            ticket_query = ""
+            additional_description = ""
+            
+            if original_query:
+                # This is a response to a ticket creation prompt
+                ticket_query = original_query
+                additional_description = "User requested ticket creation after search results were insufficient"
+                print(f"📋 Using original query for ticket: {original_query}")
+            else:
+                # This is an explicit ticket creation request
+                # Check if the query itself contains the issue description
+                query_lower = query.lower()
+                explicit_requests = [
+                    'create ticket', 'create a ticket', 'make ticket', 'make a ticket',
+                    'submit ticket', 'submit a ticket', 'open ticket', 'open a ticket',
+                    'file ticket', 'file a ticket', 'support ticket', 'log a ticket',
+                    'raise a ticket', 'escalate to ticket'
+                ]
+                
+                # Check if user provided more than just "create ticket"
+                if any(req in query_lower for req in explicit_requests):
+                    # Remove the ticket creation part to get the actual issue
+                    for req in explicit_requests:
+                        if req in query_lower:
+                            # Extract the issue description
+                            parts = query_lower.split(req)
+                            if len(parts) > 1 and parts[1].strip():
+                                ticket_query = parts[1].strip()
+                                break
+                            elif len(parts) > 0 and parts[0].strip():
+                                ticket_query = parts[0].strip()
+                                break
+                    
+                    # If no meaningful description found, use the full query
+                    if not ticket_query or len(ticket_query) < 10:
+                        # Try to get the issue from recent chat history
+                        history = self.chat_history_manager.get_history(user_id)
+                        if history and len(history) > 1:
+                            # Look for the last user query that wasn't a ticket request
+                            for msg in reversed(history[:-1]):  # Exclude current message
+                                if msg.get('type') == 'user' or msg.get('role') == 'user':
+                                    content = msg.get('content', msg.get('message', ''))
+                                    if not self.is_ticket_creation_request(content, ""):
+                                        ticket_query = content
+                                        print(f"📋 Using recent query from history: {ticket_query}")
+                                        break
+                        
+                        # If still no query, use a generic description
+                        if not ticket_query:
+                            ticket_query = "Support assistance requested"
+                            additional_description = "User explicitly requested ticket creation"
+                    
+                    additional_description = "User explicitly requested ticket creation"
+                else:
+                    ticket_query = query
+                    additional_description = "User requested ticket creation"
+            
+            print(f"🎯 Final ticket query: {ticket_query}")
+            
+            # Create simulated ticket
+            ticket_response = self.response_formatter.create_simulated_ticket(
+                query=ticket_query,
+                user_email=user_id,
+                additional_description=additional_description
+            )
+            
+            # Add to chat history
+            self.chat_history_manager.add_message(user_id, "user", query)
+            self.chat_history_manager.add_message(user_id, "assistant", ticket_response)
+            
+            return {
+                "query": query,
+                "source": "TICKET_CREATION",
+                "results_found": 1,
+                "response": ticket_response,
+                "ticket_created": ticket_response,
+                "error": None,
+                "chat_history": self.chat_history_manager.get_history(user_id)
+            }
+            
+        except Exception as e:
+            error_msg = f"Error creating ticket: {e}"
+            print(f"❌ {error_msg}")
+            
+            error_response = f"❌ Sorry, I encountered an error while creating your support ticket: {str(e)}"
+            
+            # Add to chat history
+            self.chat_history_manager.add_message(user_id, "user", query)
+            self.chat_history_manager.add_message(user_id, "assistant", error_response)
+            
+            return {
+                "query": query,
+                "source": "TICKET_CREATION_ERROR",
+                "results_found": 0,
+                "response": error_response,
+                "ticket_created": None,
+                "error": error_msg,
+                "chat_history": self.chat_history_manager.get_history(user_id)
+            }
+
     def process_query(self, user_id: str, query: str, history=None) -> Dict[str, Any]:
         """
         Process a user query through the LangGraph workflow, using chat history for context
         """
         print("🚀 Processing query:", query)
+        
+        # Check if this is a ticket creation request based on recent conversation
+        previous_response = ""
+        if history and len(history) > 0:
+            # Get the last bot response to check for ticket creation prompts
+            for msg in reversed(history):
+                if msg.get('type') == 'bot' or msg.get('role') == 'assistant':
+                    previous_response = msg.get('content', msg.get('message', ''))
+                    break
+        
+        # Check if user is providing field information for ticket creation
+        if self.is_field_information_response(query, previous_response):
+            print("📝 Detected field information response")
+            return self.process_field_information_response(user_id, query, history)
+        
+        # Check if user is responding to a ticket creation prompt
+        if self.is_ticket_creation_request(query, previous_response):
+            print("🎫 Detected ticket creation request")
+            
+            # Find the original query from history (the query that led to the ticket prompt)
+            original_query = ""
+            if history and len(history) >= 2:
+                # Look for the user query that preceded the ticket creation prompt
+                for i in range(len(history) - 2, -1, -1):
+                    msg = history[i]
+                    if msg.get('type') == 'user' or msg.get('role') == 'user':
+                        content = msg.get('content', msg.get('message', ''))
+                        # Skip if this is also an affirmative response
+                        if not self.is_ticket_creation_request(content, ""):
+                            original_query = content
+                            break
+            
+            return self.process_ticket_creation_request(user_id, query, original_query)
 
         # Add user message to chat history
         self.chat_history_manager.add_message(user_id, "user", query)
@@ -367,6 +919,7 @@ class IntelligentQueryProcessor:
         initial_state: QueryState = {
             "query": query,
             "context": context,
+            "user_email": user_id,  # Add user email to state for ticket creation
             "classified_source": None,
             "search_results": [],
             "similarity_scores": [],

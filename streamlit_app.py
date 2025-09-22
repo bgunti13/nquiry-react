@@ -6,6 +6,7 @@ Streamlit Web Interface
 import streamlit as st
 import time
 from datetime import datetime
+from datetime import timezone
 from main import IntelligentQueryProcessor
 from chat_history_manager import ChatHistoryManager
 import traceback
@@ -90,8 +91,35 @@ def get_theme_css(dark_mode=True):
     }}
     
     /* Sidebar styling */
-    .css-1d391kg, .css-1lcbmhc {{
+    .css-1d391kg, .css-1lcbmhc, .st-emotion-cache-16idsys, .st-emotion-cache-1cypcdb {{
         background-color: {theme_vars['sidebar_bg']};
+        display: block !important;
+        visibility: visible !important;
+        width: auto !important;
+    }}
+    
+    /* Force sidebar visibility */
+    .st-emotion-cache-16idsys {{
+        position: relative !important;
+        left: 0 !important;
+        transform: none !important;
+        visibility: visible !important;
+        display: block !important;
+    }}
+    
+    /* Additional sidebar selectors for newer Streamlit versions */
+    section[data-testid="stSidebar"] {{
+        display: block !important;
+        visibility: visible !important;
+        transform: translateX(0px) !important;
+        min-width: 21rem !important;
+        max-width: 21rem !important;
+    }}
+    
+    /* Sidebar content container */
+    section[data-testid="stSidebar"] > div {{
+        display: block !important;
+        visibility: visible !important;
     }}
     
     .css-1d391kg .css-10trblm {{
@@ -305,6 +333,49 @@ def get_theme_css(dark_mode=True):
 
 st.markdown(get_theme_css(st.session_state.get('dark_mode', True)), unsafe_allow_html=True)
 
+# Add JavaScript to force sidebar expansion
+st.markdown("""
+<script>
+// Force sidebar to be expanded
+function forceSidebarExpansion() {
+    // Try multiple methods to ensure sidebar is visible
+    const sidebar = document.querySelector('section[data-testid="stSidebar"]');
+    if (sidebar) {
+        sidebar.style.display = 'block';
+        sidebar.style.visibility = 'visible';
+        sidebar.style.transform = 'translateX(0px)';
+        sidebar.style.minWidth = '21rem';
+        sidebar.style.maxWidth = '21rem';
+    }
+    
+    // Hide the collapse button
+    const collapseBtn = document.querySelector('button[data-testid="collapsedControl"]');
+    if (collapseBtn) {
+        collapseBtn.style.display = 'none';
+    }
+    
+    // Set sidebar state in localStorage to expanded
+    try {
+        localStorage.setItem('stSidebarState', 'expanded');
+        // Also try other possible keys
+        localStorage.setItem('stSidebarCollapsed', 'false');
+    } catch (e) {
+        console.log('Could not set localStorage');
+    }
+}
+
+// Run immediately and on DOM changes
+forceSidebarExpansion();
+setTimeout(forceSidebarExpansion, 100);
+setTimeout(forceSidebarExpansion, 500);
+setTimeout(forceSidebarExpansion, 1000);
+
+// Observe for DOM changes
+const observer = new MutationObserver(forceSidebarExpansion);
+observer.observe(document.body, { childList: true, subtree: true });
+</script>
+""", unsafe_allow_html=True)
+
 def initialize_session_state():
     """Initialize session state variables"""
     if 'chat_history' not in st.session_state:
@@ -319,6 +390,31 @@ def initialize_session_state():
         st.session_state.chat_manager = None
     if 'dark_mode' not in st.session_state:
         st.session_state.dark_mode = True  # Default to dark mode
+
+
+def _format_timestamp_to_local(ts):
+    """Format a stored UTC datetime to local time string HH:MM.
+
+    Handles naive datetimes (assumed UTC) and timezone-aware datetimes.
+    Falls back to str(ts) if formatting fails.
+    """
+    try:
+        if not ts:
+            return ""
+        # If object has strftime, treat as datetime-like
+        if hasattr(ts, 'strftime'):
+            # If naive, assume UTC
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            # Convert to local timezone
+            local_ts = ts.astimezone()
+            return local_ts.strftime("%H:%M")
+        return str(ts)
+    except Exception:
+        try:
+            return str(ts)
+        except Exception:
+            return ""
 
 def load_specific_conversation(user_id, conversation_index):
     """Load a specific conversation from MongoDB history"""
@@ -336,7 +432,7 @@ def load_specific_conversation(user_id, conversation_index):
             full_chat_history.append({
                 'type': msg_type,
                 'content': msg['message'],
-                'timestamp': msg['timestamp'].strftime("%H:%M") if hasattr(msg['timestamp'], 'strftime') else str(msg.get('timestamp', ''))
+                'timestamp': _format_timestamp_to_local(msg.get('timestamp'))
             })
         
         # Group messages into conversations (split by time gaps or conversation boundaries)
@@ -372,7 +468,6 @@ def load_chat_history_for_user(user_id):
         
         # Get chat history from MongoDB
         mongo_history = st.session_state.chat_manager.get_history(user_id)
-        print(f"DEBUG: Retrieved {len(mongo_history)} messages from MongoDB for user {user_id}")
         
         # Convert MongoDB format to Streamlit format
         chat_history = []
@@ -384,13 +479,13 @@ def load_chat_history_for_user(user_id):
             converted_msg = {
                 'type': msg_type,
                 'content': content,
-                'timestamp': msg['timestamp'].strftime("%H:%M") if hasattr(msg['timestamp'], 'strftime') else msg.get('timestamp', '')
+                'timestamp': _format_timestamp_to_local(msg.get('timestamp'))
             }
             chat_history.append(converted_msg)
-            print(f"DEBUG: Converted message - Type: {msg_type}, Content: {content[:50]}...")
         
+        # Ensure the most recent messages are shown first (newest at top)
+        chat_history = list(reversed(chat_history))
         st.session_state.chat_history = chat_history
-        print(f"DEBUG: Set session state with {len(chat_history)} messages")
         return True
     except Exception as e:
         print(f"Error loading chat history: {e}")
@@ -406,7 +501,6 @@ def load_conversation_by_question(user_id, question):
         
         # Get full chat history from MongoDB
         mongo_history = st.session_state.chat_manager.get_history(user_id)
-        print(f"DEBUG: Looking for question: '{question}' in {len(mongo_history)} messages")
         
         # Find the conversation that contains this question
         conversation_messages = []
@@ -415,34 +509,27 @@ def load_conversation_by_question(user_id, question):
         for i, msg in enumerate(mongo_history):
             if msg['role'] == 'user' and msg['message'].strip() == question.strip():
                 found_question = True
-                print(f"DEBUG: Found exact match at index {i}")
                 # Start collecting messages from this question
                 conversation_messages = []
                 
                 # Add the question
                 conversation_messages.append(msg)
-                print(f"DEBUG: Added user question: {msg['message'][:50]}...")
                 
                 # Add all subsequent assistant responses for this question
                 for j in range(i + 1, len(mongo_history)):
                     next_msg = mongo_history[j]
                     if next_msg['role'] == 'assistant':
                         conversation_messages.append(next_msg)
-                        print(f"DEBUG: Added assistant response: {next_msg['message'][:50]}...")
                     elif next_msg['role'] == 'user':
                         # Check if it's the same question (duplicate) - if so, skip it
                         if next_msg['message'].strip() == question.strip():
-                            print(f"DEBUG: Skipping duplicate user question at index {j}")
                             continue
                         else:
                             # Different user question - stop here
-                            print(f"DEBUG: Stopped at different user question at index {j}")
                             break
-                print(f"DEBUG: Collected {len(conversation_messages)} messages for this conversation")
                 break
         
         if found_question:
-            print(f"DEBUG: Found conversation with {len(conversation_messages)} messages")
             # Convert to Streamlit format
             chat_history = []
             for msg in conversation_messages:
@@ -451,18 +538,13 @@ def load_conversation_by_question(user_id, question):
                 chat_history.append({
                     'type': msg_type,
                     'content': content,
-                    'timestamp': msg['timestamp'].strftime("%H:%M") if hasattr(msg['timestamp'], 'strftime') else str(msg.get('timestamp', ''))
+                    'timestamp': _format_timestamp_to_local(msg.get('timestamp'))
                 })
-                print(f"DEBUG: Converted message - Type: {msg_type}, Content length: {len(content)}, Content: '{content[:100]}{'...' if len(content) > 100 else ''}'")
+            # Keep chronological order: user question followed by assistant responses
+            # (do not reverse here)
             
             st.session_state.chat_history = chat_history
-            print(f"DEBUG: Set session state with {len(chat_history)} messages")
-            print(f"DEBUG: Session chat history now contains:")
-            for i, msg in enumerate(st.session_state.chat_history):
-                print(f"  {i+1}. {msg['type']}: {msg['content'][:50]}{'...' if len(msg['content']) > 50 else ''}")
             return True
-        else:
-            print(f"DEBUG: Question not found: '{question}'")
         
         return False
     except Exception as e:
@@ -490,7 +572,7 @@ def get_past_conversations(user_id):
                 if question not in seen_questions:
                     unique_questions.append({
                         'content': question,
-                        'timestamp': msg['timestamp'].strftime("%H:%M") if hasattr(msg['timestamp'], 'strftime') else str(msg.get('timestamp', ''))
+                        'timestamp': _format_timestamp_to_local(msg.get('timestamp'))
                     })
                     seen_questions.add(question)
         
@@ -597,27 +679,48 @@ def display_system_status():
             
             if past_conversations:
                 with st.sidebar.expander(f"Recent Conversations ({len(past_conversations)})", expanded=False):
-                    for i, conv in enumerate(past_conversations):
-                        timestamp = conv.get('timestamp', '')
-                        content = conv['content'][:45] + "..." if len(conv['content']) > 45 else conv['content']
-                        
-                        # Make each conversation clickable
-                        if st.button(
-                            f"💬 {content}",
-                            key=f"conv_{i}_{timestamp}",
-                            help=f"Click to load this conversation from {timestamp}",
-                            use_container_width=True
-                        ):
-                            # Find the full conversation that contains this question
-                            if load_conversation_by_question(user_id, conv['content']):
-                                st.success(f"✅ Loaded conversation: {content}")
-                                st.rerun()
-                            else:
-                                st.error("❌ Could not load conversation")
-                        
-                        st.caption(f"⏰ {timestamp}")
-                        if i < len(past_conversations) - 1:
-                            st.divider()
+                            # Show most recent first
+                            for idx, conv in enumerate(reversed(past_conversations)):
+                                # Use a proper timestamp and truncated preview
+                                timestamp = conv.get('timestamp', '')
+                                content_full = conv['content']
+                                content = content_full[:45] + "..." if len(content_full) > 45 else content_full
+
+                                cols = st.columns([6, 2])
+                                with cols[0]:
+                                    if st.button(
+                                        f"💬 {content}",
+                                        key=f"conv_load_{idx}_{timestamp}",
+                                        help=f"Click to load this conversation from {timestamp}",
+                                        use_container_width=True
+                                    ):
+                                        if load_conversation_by_question(user_id, conv['content']):
+                                            st.success(f"✅ Loaded conversation: {content}")
+                                            st.rerun()
+                                        else:
+                                            st.error("❌ Could not load conversation")
+
+                                with cols[1]:
+                                    # Delete button for conversation
+                                    if st.button(
+                                        "🗑️ Delete",
+                                        key=f"conv_delete_{idx}_{timestamp}",
+                                        help=f"Delete this conversation",
+                                        use_container_width=True
+                                    ):
+                                        # Call ChatHistoryManager to delete the conversation by question
+                                        try:
+                                            deleted = st.session_state.chat_manager.delete_conversation_by_question(user_id, content_full)
+                                            if deleted:
+                                                st.success("🗑️ Conversation deleted")
+                                            else:
+                                                st.warning("No matching conversation found or nothing deleted")
+                                        except Exception as e:
+                                            st.error(f"Failed to delete conversation: {e}")
+                                        st.rerun()
+
+                                st.caption(f"⏰ {timestamp}")
+                                st.divider()
             else:
                 with st.sidebar.expander("Recent Conversations", expanded=False):
                     st.write("No past conversations found")
@@ -829,6 +932,9 @@ def main():
     initialize_session_state()
     display_header()
     
+    # Force sidebar to be visible
+    st.sidebar.title("nQuiry Assistant")
+    
     # Sidebar
     display_system_status()
     
@@ -896,7 +1002,6 @@ def main():
         # Process query
         if st.session_state.nquiry_processor and st.session_state.nquiry_processor != "placeholder":
             response = process_query(user_query, st.session_state.nquiry_processor, user_id)
-            print(f"DEBUG STREAMLIT: Received response of length {len(response)}: {response[:100]}...")
             
             # Add bot response to chat history
             bot_timestamp = datetime.now().strftime("%H:%M")

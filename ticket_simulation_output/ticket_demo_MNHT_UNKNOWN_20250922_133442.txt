@@ -1,0 +1,42 @@
+============================================================
+🎫 DEMO TICKET - MNHT CATEGORY
+============================================================
+
+📋 **Ticket ID:** MNHT-A6105C
+📅 **Created:** 2025-09-22 13:34:42
+👤 **Created By:** nQuiry AI Assistant
+🏢 **Customer:** unknown
+
+📝 **TICKET DETAILS**
+----------------------------------------
+**Summary:** Support Request: yes
+
+**Description:**
+Original Query: yes
+
+Additional Details: User requested ticket creation after search results were insufficient
+
+⚙️ **SYSTEM POPULATED FIELDS**
+----------------------------------------
+**Project:** Model N Hi-Tech (MNHT)
+**Work Type:** Service Request
+**Request Type:** Product Support
+**Urgency:** Medium
+**Impact:** Moderate/Limited
+**Jsd Suppress Group Email Notification:** No
+**Support Org:** Product Support
+
+💼 **CATEGORY-SPECIFIC INFORMATION**
+----------------------------------------
+**Product Support Request:**
+• Technical assistance with Model N products
+• Version-specific issue resolution
+• Environment-related support
+
+🚨 **IMPORTANT NOTE**
+----------------------------------------
+This is a SIMULATED ticket created for demonstration purposes.
+In production, this would be created in the actual ticketing system
+with proper integration and workflow automation.
+
+============================================================

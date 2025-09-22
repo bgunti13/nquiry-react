@@ -1,0 +1,136 @@
+{
+  "ticket_categories": {
+    "NOC": {
+      "keywords": [
+        "monitoring workflow",
+        "access",
+        "outage",
+        "reservation", 
+        "decommission",
+        "custom task",
+        "reset ro user db password",
+        "monitoring",
+        "database password",
+        "reset password"
+      ],
+      "required_fields": {
+        "description": "Description of the issue"
+      },
+      "populated_fields": {
+        "project": "MNLS, MNHT",
+        "work_type": "Task",
+        "summary": "Generated based on description",
+        "priority": "Medium",
+        "customer": "Based on user domain",
+        "cloud_operations_request_type": "production",
+        "cloud_operations_request_date": "Alert from NOC to COPS"
+      },
+      "work_type_options": {
+        "Task": "Use this value for scheduling a request or requesting logs and other assistance.",
+        "Outage": "Use for emergency request when application or service has crashed or is unresponsive. No customer approval required.",
+        "Access": "To request access"
+      }
+    },
+    "COPS": {
+      "keywords": [
+        "deployment",
+        "provisioning", 
+        "troubleshooting",
+        "db refresh",
+        "db change request",
+        "datafix",
+        "file request",
+        "report request", 
+        "db parameter changes",
+        "custom task",
+        "database",
+        "deploy",
+        "provision"
+      ],
+      "required_fields": {
+        "description": "Description of the issue"
+      },
+      "populated_fields": {
+        "project": "COPS",
+        "work_type": "Task",
+        "summary": "Based on description",
+        "priority": "Medium",
+        "customer": "Based on user domain",
+        "support_projects": "MNHT or MNLS based on customer",
+        "cloud_environmental_list": "production",
+        "cloud_operations_request_type": "Change Request – DB",
+        "cloud_operations_request_date": "Optional"
+      }
+    },
+    "CSP": {
+      "keywords": [
+        "grant access",
+        "revoke access",
+        "access management",
+        "permissions",
+        "user access"
+      ],
+      "required_fields": {
+        "description": "Description of the access request"
+      },
+      "populated_fields": {
+        "project": "CSP",
+        "work_type": "Access Request",
+        "summary": "Generated based on description",
+        "priority": "Medium",
+        "customer": "Based on user domain"
+      }
+    },
+    "MNHT": {
+      "keywords": [
+        "amd",
+        "hi-tech",
+        "model n hi-tech"
+      ],
+      "required_fields": {
+        "description": "Description of the issue",
+        "area": "Area affected",
+        "affected_version": "Version affected",
+        "reported_environment": "Environment (Optional)"
+      },
+      "populated_fields": {
+        "project": "Model N Hi-Tech (MNHT)",
+        "work_type": "Service Request",
+        "request_type": "Product Support",
+        "summary": "Based on description",
+        "urgency": "Medium",
+        "impact": "Moderate/Limited",
+        "jsd_suppress_group_email_notification": "No",
+        "support_org": "Product Support"
+      }
+    },
+    "MNLS": {
+      "keywords": [
+        "novartis",
+        "life sciences",
+        "model n life sciences"
+      ],
+      "required_fields": {
+        "description": "Description of the issue",
+        "area": "Area affected", 
+        "affected_version": "Version affected",
+        "reported_environment": "Environment (Optional)"
+      },
+      "populated_fields": {
+        "project": "Model N Life Sciences (MNLS)",
+        "work_type": "Service Request",
+        "request_type": "Product Support",
+        "summary": "Based on description",
+        "urgency": "Medium",
+        "impact": "Moderate/Limited",
+        "jsd_suppress_group_email_notification": "No",
+        "support_org": "Product Support"
+      }
+    }
+  },
+  "customer_mappings": {
+    "amd": "MNHT",
+    "novartis": "MNLS"
+  },
+  "default_category": "MNHT"
+}
