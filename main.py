@@ -765,19 +765,14 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
         """
         try:
             print(f"🎫 Processing ticket creation request for user: {user_id}")
-            
             # Determine the query to use for ticket creation
             ticket_query = ""
             additional_description = ""
-            
             if original_query:
-                # This is a response to a ticket creation prompt
                 ticket_query = original_query
                 additional_description = "User requested ticket creation after search results were insufficient"
                 print(f"📋 Using original query for ticket: {original_query}")
             else:
-                # This is an explicit ticket creation request
-                # Check if the query itself contains the issue description
                 query_lower = query.lower()
                 explicit_requests = [
                     'create ticket', 'create a ticket', 'make ticket', 'make a ticket',
@@ -785,13 +780,9 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                     'file ticket', 'file a ticket', 'support ticket', 'log a ticket',
                     'raise a ticket', 'escalate to ticket'
                 ]
-                
-                # Check if user provided more than just "create ticket"
                 if any(req in query_lower for req in explicit_requests):
-                    # Remove the ticket creation part to get the actual issue
                     for req in explicit_requests:
                         if req in query_lower:
-                            # Extract the issue description
                             parts = query_lower.split(req)
                             if len(parts) > 1 and parts[1].strip():
                                 ticket_query = parts[1].strip()
@@ -799,50 +790,48 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                             elif len(parts) > 0 and parts[0].strip():
                                 ticket_query = parts[0].strip()
                                 break
-                    
-                    # If no meaningful description found, use the full query
                     if not ticket_query or len(ticket_query) < 10:
-                        # Try to get the issue from recent chat history
                         history = self.chat_history_manager.get_history(user_id)
                         if history and len(history) > 1:
-                            # Look for the last user query that wasn't a ticket request
-                            for msg in reversed(history[:-1]):  # Exclude current message
+                            for msg in reversed(history[:-1]):
                                 if msg.get('type') == 'user' or msg.get('role') == 'user':
                                     content = msg.get('content', msg.get('message', ''))
                                     if not self.is_ticket_creation_request(content, ""):
                                         ticket_query = content
                                         print(f"📋 Using recent query from history: {ticket_query}")
                                         break
-                        
-                        # If still no query, use a generic description
                         if not ticket_query:
                             ticket_query = "Support assistance requested"
                             additional_description = "User explicitly requested ticket creation"
-                    
                     additional_description = "User explicitly requested ticket creation"
                 else:
                     ticket_query = query
                     additional_description = "User requested ticket creation"
-            
             print(f"🎯 Final ticket query: {ticket_query}")
-            
-            # Create simulated ticket
+
+
+            # --- Simplified logic: delegate missing-field detection to ResponseFormatter ---
+            # Let ResponseFormatter decide which fields are missing and return a prompt if needed.
             ticket_response = self.response_formatter.create_simulated_ticket(
                 query=ticket_query,
                 user_email=user_id,
-                additional_description=additional_description
+                additional_description=additional_description,
+                collected_fields=None  # Let ResponseFormatter initialize and auto-fill description
             )
-            
-            # Add to chat history
+
+            # Record messages in chat history
             self.chat_history_manager.add_message(user_id, "user", query)
             self.chat_history_manager.add_message(user_id, "assistant", ticket_response)
-            
+
+            # If the response is a field collection prompt, set source accordingly
+            source_type = "FIELD_COLLECTION" if "Additional Information Required" in ticket_response else "TICKET_CREATION"
+
             return {
                 "query": query,
-                "source": "TICKET_CREATION",
+                "source": source_type,
                 "results_found": 1,
                 "response": ticket_response,
-                "ticket_created": ticket_response,
+                "ticket_created": ticket_response if source_type == "TICKET_CREATION" else None,
                 "error": None,
                 "chat_history": self.chat_history_manager.get_history(user_id)
             }

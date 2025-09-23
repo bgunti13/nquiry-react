@@ -12,6 +12,30 @@ from config import AWS_REGION, BEDROCK_MODEL
 load_dotenv()
 
 class ResponseFormatter:
+    def get_required_fields_for_query(self, query: str, user_email: str = "") -> List[str]:
+        """
+        Given a query and user email, determine the ticket category and return the required field names to be requested from the customer.
+        """
+        try:
+            import json
+            config_path = os.path.join(os.path.dirname(__file__), 'ticket_mapping_config.json')
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            category = self._determine_ticket_category(query, user_email, config)
+            # Only return fields that should be requested from the customer
+            if category in ['MNHT', 'MNLS']:
+                return ['description', 'area', 'affected_version', 'reported_environment']
+            elif category == 'NOC':
+                return ['description']
+            elif category == 'COPS':
+                return ['description']
+            else:
+                # Default: all required fields
+                required_fields = config['ticket_categories'][category]['required_fields']
+                return list(required_fields.keys())
+        except Exception as e:
+            print(f"Error in get_required_fields_for_query: {e}")
+            return []
     """
     Formats search results into user-friendly responses using LLM
     """
