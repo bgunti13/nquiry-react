@@ -91,7 +91,7 @@
         "description": "Description of the issue",
         "area": "Area affected",
         "affected_version": "Version affected",
-        "reported_environment": "Environment (Optional)"
+        "reported_environment": "Environment"
       },
       "populated_fields": {
         "project": "Model N Hi-Tech (MNHT)",
@@ -114,7 +114,7 @@
         "description": "Description of the issue",
         "area": "Area affected", 
         "affected_version": "Version affected",
-        "reported_environment": "Environment (Optional)"
+        "reported_environment": "Environment"
       },
       "populated_fields": {
         "project": "Model N Life Sciences (MNLS)",

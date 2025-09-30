@@ -48,16 +48,18 @@ class IntelligentQueryProcessor:
     LangGraph-based intelligent query processor using custom REST API tools
     """
 
-    def __init__(self):
+    def __init__(self, streamlit_mode=False):
         # Initialize basic components
         self.semantic_search = SemanticSearch()
         self.response_formatter = ResponseFormatter()
         self.ticket_creator = TicketCreator()
         self.chat_history_manager = ChatHistoryManager()
+        self.streamlit_mode = streamlit_mode
 
         # Get customer email upfront for all queries (required for customer identification)
-        print("🔐 Customer Authentication Required")
-        print("=" * 40)
+        if not streamlit_mode:  # Skip interactive prompt in Streamlit
+            print("🔐 Customer Authentication Required")
+            print("=" * 40)
         print("💡 Please provide your email for customer identification and role-based access")
         customer_email = MindTouchTool.get_customer_email_from_input()
 
@@ -102,39 +104,15 @@ class IntelligentQueryProcessor:
 
         # Define the new routing logic
         def should_fallback_to_mindtouch(state) -> str:
-            """Fallback to MindTouch if JIRA search yields no results"""
+            """Always search MindTouch to combine with JIRA results for comprehensive response"""
             search_results = state.get('search_results', [])
             
             if not search_results:
                 print("📖 No JIRA results found - fallback to MindTouch")
                 return "search_mindtouch"
             else:
-                # Use Bedrock to evaluate if JIRA results are sufficient
-                query = state.get('query', '')
-                bedrock_decision = self.analyze_with_bedrock(query, search_results, 'JIRA')
-                
-                # Check the formatted response for insufficient content indicators
-                formatted_response = bedrock_decision.get('formatted_response', '')
-                insufficient_indicators = [
-                    "no specific resolution steps are provided",
-                    "cannot provide actionable steps", 
-                    "no resolution details are included",
-                    "more context is needed",
-                    "further investigation",
-                    "does not contain complete details",
-                    "without more details",
-                    "unfortunately, the provided search result does not contain"
-                ]
-                
-                response_lower = formatted_response.lower()
-                has_insufficient_content = any(indicator in response_lower for indicator in insufficient_indicators)
-                
-                if bedrock_decision.get('action') == 'create_ticket' or has_insufficient_content:
-                    print("📖 JIRA results insufficient or contain limitation phrases - fallback to MindTouch")
-                    return "search_mindtouch"
-                else:
-                    print("🎯 JIRA results sufficient - formatting response")
-                    return "format_response"
+                print("📖 JIRA results found - also searching MindTouch for comprehensive response")
+                return "search_mindtouch"
 
         def should_create_ticket_or_format(state) -> str:
             """Decide whether to create ticket or format response"""
@@ -267,11 +245,18 @@ class IntelligentQueryProcessor:
                     state['similarity_scores'] = mindtouch_scores
                     state['last_search_source'] = 'MINDTOUCH'
                 
-                print(f"✅ MindTouch results ready for formatting")
+                print(f"✅ Combined results ready for formatting")
             else:
-                state['search_results'] = []
-                state['similarity_scores'] = []
-                print("⚠️  No MindTouch pages found")
+                # No MindTouch results, but check if we have existing JIRA results
+                existing_results = state.get('search_results', [])
+                if existing_results:
+                    print("⚠️  No MindTouch pages found, but JIRA results available")
+                    state['last_search_source'] = 'JIRA'  # Keep JIRA as source
+                    print(f"✅ JIRA results ready for formatting")
+                else:
+                    print("⚠️  No results found in either JIRA or MindTouch")
+                    state['search_results'] = []
+                    state['similarity_scores'] = []
 
         except Exception as e:
             print(f"❌ Error searching MindTouch: {e}")
@@ -390,6 +375,19 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                     results=search_results,
                     source=state.get('classified_source', '')
                 )
+                
+                # Check if response came from JIRA or combined sources - always offer ticket creation 
+                source = state.get('last_search_source', state.get('classified_source', ''))
+                if source == 'JIRA':
+                    print("📋 JIRA response provided - offering ticket creation option")
+                    state['formatted_response'] = formatted_response + "\n\n❓ This response is based on JIRA ticket data. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
+                    state['ticket_creation_suggested'] = True
+                    return state
+                elif source == 'MULTI':
+                    print("📋 Combined JIRA + MindTouch response provided - offering ticket creation option")
+                    state['formatted_response'] = formatted_response + "\n\n❓ This response combines information from JIRA tickets and documentation. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
+                    state['ticket_creation_suggested'] = True
+                    return state
                 
                 # Secondary check: Even if Bedrock says sufficient, check for insufficient content indicators
                 insufficient_indicators = [
@@ -635,9 +633,14 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                 'please provide the following details',
                 'area affected',
                 'version affected',
-                'reported environment'
+                'reported environment',
+                'please provide additional information',
+                'which area is affected',
+                'what version',
+                'which environment'
             ]
             
+            # Only proceed if previous response was asking for fields
             if any(indicator in previous_response.lower() for indicator in field_indicators):
                 # Check if current response contains field-like information
                 query_lower = query.lower()
@@ -648,7 +651,7 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                     'affected version', 'reported environment',
                     # Or version numbers
                     r'\d+\.\d+',
-                    # Or environment names
+                    # Or environment names (but only if context suggests fields)
                     'production', 'staging', 'test', 'development'
                 ]
                 
@@ -662,7 +665,8 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                             return True
                 
                 # If response has multiple lines or structured content, likely field info
-                if len(query.split('\n')) > 1 or len(query.split()) > 5:
+                # But only if we already confirmed previous response was asking for fields
+                if len(query.split('\n')) > 1:
                     return True
         
         return False
@@ -809,29 +813,43 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                     additional_description = "User requested ticket creation"
             print(f"🎯 Final ticket query: {ticket_query}")
 
+            # Check if we're running in Streamlit mode
+            if self.streamlit_mode:
+                # For Streamlit, return a response that directly triggers the form
+                ticket_prompt = f"🎫 **Creating Support Ticket**\n\n**Query:** {ticket_query}\n\nPlease fill out the ticket form below to complete your support request."
+                
+                # Store the query for potential ticket creation
+                # Record messages in chat history
+                self.chat_history_manager.add_message(user_id, "user", query)
+                self.chat_history_manager.add_message(user_id, "assistant", ticket_prompt)
+                
+                return {
+                    'response': ticket_prompt,
+                    'formatted_response': ticket_prompt,
+                    'ticket_creation_ready': True,
+                    'original_query': ticket_query
+                }
 
-            # --- Simplified logic: delegate missing-field detection to ResponseFormatter ---
-            # Let ResponseFormatter decide which fields are missing and return a prompt if needed.
-            ticket_response = self.response_formatter.create_simulated_ticket(
+            # Use the enhanced TicketCreator for CLI mode
+            ticket_creator = TicketCreator()
+            
+            ticket_data = ticket_creator.create_ticket(
                 query=ticket_query,
-                user_email=user_id,
-                additional_description=additional_description,
-                collected_fields=None  # Let ResponseFormatter initialize and auto-fill description
+                customer_email=user_id
             )
-
+            
+            ticket_response = f"✅ Ticket created successfully: {ticket_data.get('ticket_id', 'N/A')}"
+            
             # Record messages in chat history
             self.chat_history_manager.add_message(user_id, "user", query)
             self.chat_history_manager.add_message(user_id, "assistant", ticket_response)
 
-            # If the response is a field collection prompt, set source accordingly
-            source_type = "FIELD_COLLECTION" if "Additional Information Required" in ticket_response else "TICKET_CREATION"
-
             return {
                 "query": query,
-                "source": source_type,
+                "source": "TICKET_CREATION",
                 "results_found": 1,
                 "response": ticket_response,
-                "ticket_created": ticket_response if source_type == "TICKET_CREATION" else None,
+                "ticket_created": ticket_response,
                 "error": None,
                 "chat_history": self.chat_history_manager.get_history(user_id)
             }
@@ -944,6 +962,7 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                 "results_found": len(final_state_dict.get('search_results', [])),
                 "response": formatted_response,
                 "ticket_created": final_state_dict.get('ticket_created'),
+                "ticket_creation_suggested": final_state_dict.get('ticket_creation_suggested', False),
                 "error": error,
                 "chat_history": self.chat_history_manager.get_history(user_id)
             }
@@ -1026,9 +1045,32 @@ def main():
                 continue
 
             # Process the query through LangGraph
-            # You need a user_id for each session/user. For demo, use a static string or prompt for it.
-            user_id = "demo_user"  # Replace with actual user identifier in production
+            # You need a user_id for each session/user. For demo, use a test email
+            user_id = "abc@wdc.com"  # Test email for WDC customer
             result = processor.process_query(user_id, query)
+            
+            # Check if ticket creation was suggested and handle user response
+            if result.get('ticket_creation_suggested', False):
+                print("\n💡 The system has suggested creating a support ticket.")
+                follow_up = input("💬 Would you like to create a ticket? (yes/no): ").strip().lower()
+                
+                if follow_up in ['yes', 'y', 'create ticket', 'ticket']:
+                    print("🎫 Proceeding with ticket creation...")
+                    # Get the original query from chat history for ticket creation
+                    history = processor.chat_history_manager.get_history(user_id)
+                    original_query = query
+                    if history and len(history) >= 2:
+                        for msg in reversed(history[:-1]):  # Skip the last message (current response)
+                            if msg.get('type') == 'user' or msg.get('role') == 'user':
+                                original_query = msg.get('content', msg.get('message', query))
+                                break
+                    
+                    # Process ticket creation
+                    ticket_result = processor.process_ticket_creation_request(user_id, "yes", original_query)
+                    print(ticket_result.get('response', 'Ticket creation completed.'))
+                else:
+                    print("👍 No problem! Let me know if you need anything else.")
+            
             print()
 
         except KeyboardInterrupt:

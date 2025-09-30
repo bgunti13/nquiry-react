@@ -1,0 +1,24 @@
+TICKET SIMULATION OUTPUT
+========================
+
+Ticket ID: TICKET_MNHT_UNKNOWN_20250923_121856
+Category: MNHT
+Customer: UNKNOWN
+Created: 2025-09-23T12:18:56.834559
+Customer Email: demo_user
+Original Query: Salesforce accounts are not syncing to MN PROD
+
+TICKET DETAILS:
+===============
+Description: Salesforce accounts are not syncing to MN PROD
+Area: Other
+Affected Version: Fall 2022
+Reported Environment: staging
+Project: Model N Hi-Tech (MNHT)
+Work Type: Service Request
+Request Type: Product Support
+Summary: Based on description
+Urgency: Medium
+Impact: Moderate/Limited
+Jsd Suppress Group Email Notification: No
+Support Org: Product Support

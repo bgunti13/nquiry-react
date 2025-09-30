@@ -30,13 +30,10 @@ class JiraTool:
         if not all([self.base_url, self.username, self.api_token]):
             print("⚠️  JIRA configuration incomplete. Please set JIRA_BASE_URL, JIRA_USERNAME, and JIRA_API_TOKEN in .env")
         
-        # Ensure base_url ends with /rest/api/3/
-        if self.base_url and not self.base_url.endswith('/'):
-            self.base_url += '/'
-        if self.base_url and not self.base_url.endswith('rest/api/3/'):
-            if not self.base_url.endswith('rest/api/3'):
-                self.base_url += 'rest/api/3/'
+        # Store original URL for fallbacks
+        self.original_base_url = self.base_url
         
+        # Initialize session first
         self.session = requests.Session()
         if self.username and self.api_token:
             self.session.auth = HTTPBasicAuth(self.username, self.api_token)
@@ -50,8 +47,25 @@ class JiraTool:
             'Accept': 'application/json'
         })
         
-        # Load customer-org mapping from Excel
+        # Try to determine the correct API version
+        self._setup_api_url()
+        
+        # Load customer-organization mapping from Excel file
         self._load_customer_mapping()
+    
+    def _setup_api_url(self):
+        """Setup the correct API URL with version detection"""
+        if not self.base_url:
+            return
+            
+        # Ensure base_url ends with /
+        if not self.base_url.endswith('/'):
+            self.base_url += '/'
+        
+        # Try API v3 first, then v2 if that fails
+        if not self.base_url.endswith('rest/api/3/') and not self.base_url.endswith('rest/api/2/'):
+            # Default to API v3
+            self.base_url += 'rest/api/3/'
     
     def _extract_text_from_adf(self, adf_content):
         """
@@ -177,6 +191,20 @@ class JiraTool:
                 else:
                     break
                     
+        return False
+    
+    def _try_api_version_fallback(self):
+        """Try switching to different API version if current one fails"""
+        if 'rest/api/3/' in self.base_url:
+            # Try API v2
+            self.base_url = self.base_url.replace('rest/api/3/', 'rest/api/2/')
+            print(f"🔄 Trying JIRA API v2: {self.base_url}")
+            return True
+        elif 'rest/api/2/' in self.base_url:
+            # Try back to API v3
+            self.base_url = self.base_url.replace('rest/api/2/', 'rest/api/3/')
+            print(f"🔄 Trying JIRA API v3: {self.base_url}")
+            return True
         return False
     
     def _get_organization_variations(self, organization: str) -> List[str]:
@@ -948,4 +976,139 @@ class JiraTool:
                 
         except Exception as e:
             print(f"❌ Error getting JIRA projects: {e}")
+            return []
+
+    def get_recent_tickets_by_organization(self, organization: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Get recent JIRA tickets for a specific organization
+        
+        Args:
+            organization: Organization name to filter by
+            limit: Maximum number of recent tickets to return
+            
+        Returns:
+            List of recent JIRA tickets for the organization with links
+        """
+        try:
+            if not self.test_connection():
+                print("❌ JIRA connection not available")
+                return []
+            
+            # Get all organization variations using the mapping function
+            org_variations = self._get_organization_variations(organization)
+            
+            print(f"🏢 Getting recent tickets for organization '{organization}': {org_variations}")
+            
+            # Create comprehensive organization filter including custom fields
+            org_conditions = []
+            
+            # Search in the key organization custom fields with all variations
+            for variation in org_variations:
+                org_conditions.extend([
+                    f'cf[10032] = "{variation}"',   # Customer field - use = for object fields
+                    f'cf[13400] = "{variation}"',   # Organizations field - use = for object fields
+                ])
+            
+            # Also search in summary and description with key variations (first 3 to keep query manageable)
+            key_variations = org_variations[:3]
+            for variation in key_variations:
+                org_conditions.extend([
+                    f'summary ~ "{variation}"',     # Text fields - use ~ for contains
+                    f'description ~ "{variation}"'  # Text fields - use ~ for contains
+                ])
+            
+            org_filter = f'({" OR ".join(org_conditions)})'
+            
+            # Order by most recent first
+            jql_query = f'{org_filter} ORDER BY updated DESC'
+            
+            print(f"🔍 Recent Tickets JQL Query: {jql_query}")
+            
+            # Prepare search parameters for GET request
+            fields = [
+                'summary',
+                'status',
+                'priority',
+                'updated',
+                'created',
+                'issuetype',
+                'assignee',
+                'key'
+            ]
+            
+            params = {
+                'jql': jql_query,
+                'maxResults': limit,
+                'startAt': 0,
+                'fields': ','.join(fields)
+            }
+            
+            # Debug the URL being called - use the new /search/jql endpoint
+            search_url = f"{self.base_url}search/jql"
+            print(f"🔧 JIRA API URL: {search_url}")
+            print(f"🔧 JIRA Params: {params}")
+            
+            response = self.session.get(search_url, params=params)
+            
+            print(f"🔧 JIRA Response Status: {response.status_code}")
+            if response.status_code != 200:
+                print(f"🔧 JIRA Response Text: {response.text[:500]}")
+            
+            # If we get a 410, try fallback to old search endpoint
+            if response.status_code == 410:
+                print("🔄 Trying old /search endpoint...")
+                search_url = f"{self.base_url}search"
+                response = self.session.get(search_url, params=params)
+                print(f"🔧 Retry Response Status: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                issues = data.get('issues', [])
+                
+                print(f"✅ Found {len(issues)} recent tickets for {organization}")
+                
+                # Format tickets for display
+                formatted_tickets = []
+                for issue in issues:
+                    key = issue.get('key', '')
+                    fields_data = issue.get('fields', {})
+                    
+                    # Create JIRA link
+                    jira_base = self.base_url.replace('/rest/api/3/', '').replace('/rest/api/2/', '')
+                    jira_link = f"{jira_base}/browse/{key}"
+                    
+                    formatted_ticket = {
+                        'key': key,
+                        'summary': fields_data.get('summary', 'No summary'),
+                        'status': fields_data.get('status', {}).get('name', 'Unknown'),
+                        'priority': fields_data.get('priority', {}).get('name', 'Medium') if fields_data.get('priority') else 'Medium',
+                        'updated': fields_data.get('updated', ''),
+                        'created': fields_data.get('created', ''),
+                        'issue_type': fields_data.get('issuetype', {}).get('name', 'Task'),
+                        'assignee': fields_data.get('assignee', {}).get('displayName', 'Unassigned') if fields_data.get('assignee') else 'Unassigned',
+                        'link': jira_link,
+                        'organization_match': organization
+                    }
+                    
+                    formatted_tickets.append(formatted_ticket)
+                
+                return formatted_tickets
+                
+            elif response.status_code == 410:
+                print(f"❌ JIRA API endpoint gone (410) - The API endpoint may have been deprecated or moved")
+                print(f"🔧 Current base URL: {self.base_url}")
+                print("💡 Try checking if the JIRA instance uses a different API version")
+                return []
+            else:
+                print(f"❌ Failed to get recent tickets: {response.status_code}")
+                if response.status_code == 400:
+                    print(f"Bad Request - JQL might be invalid: {response.text}")
+                elif response.status_code == 401:
+                    print(f"Unauthorized - Check authentication credentials")
+                elif response.status_code == 403:
+                    print(f"Forbidden - User doesn't have permission to search issues")
+                return []
+                
+        except Exception as e:
+            print(f"❌ Error getting recent tickets: {e}")
             return []

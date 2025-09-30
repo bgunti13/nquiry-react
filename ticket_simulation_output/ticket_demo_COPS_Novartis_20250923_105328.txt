@@ -1,0 +1,31 @@
+
+SUPPORT TICKET - COPS
+============================================================
+
+TICKET INFORMATION
+------------------
+Ticket ID: COPS-20250923105328
+Category: COPS
+Created Date: 2025-09-23T10:53:28.748078
+Customer: Novartis
+Customer Email: devops@novartis.com
+
+ORIGINAL QUERY
+--------------
+Need to deploy new version and refresh database
+
+TICKET DETAILS
+--------------
+Description: Deploy version 2.3.1 to production and refresh customer database
+Project: COPS
+Work Type: Task
+Summary: COPS Request: Deploy version 2.3.1 to production and refresh customer database
+Priority: Medium
+Support Projects: MNLS
+Cloud Environmental List: production
+Cloud Operations Request Type: Change Request â€“ DB
+Cloud Operations Request Date: Optional
+
+============================================================
+Ticket generated on: 2025-09-23 10:53:28
+This is a simulated ticket for demonstration purposes.

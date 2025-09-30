@@ -67,7 +67,7 @@ class CustomerRoleMappingManager:
                 
                 # Skip non-customer data sheets
                 sheet_name_clean = sheet_name.strip().lower()
-                if sheet_name_clean in ['jira fields', 'mapping', 'config', 'settings', 'field mapping', 'field mappings']:
+                if sheet_name_clean in ['mapping', 'config', 'settings', 'field mapping', 'field mappings', 'jira fields', 'jira fields ']:
                     print(f"   ⏭️  Skipping non-customer sheet: '{sheet_name}'")
                     continue
                 
@@ -111,34 +111,47 @@ class CustomerRoleMappingManager:
         """Process Life Sciences sheet with Platform column"""
         customers_processed = 0
         
+        # Check if required columns exist
+        if 'Customer' not in df.columns:
+            print(f"   ⚠️  Sheet '{sheet_name}' missing 'Customer' column, skipping")
+            return 0
+        if 'Platform' not in df.columns:
+            print(f"   ⚠️  Sheet '{sheet_name}' missing 'Platform' column, skipping")
+            return 0
+        
         for _, row in df.iterrows():
-            customer_name = str(row['Customer']).strip()
-            platform = str(row['Platform']).strip()
-            
-            # Skip invalid entries
-            if pd.isna(customer_name) or customer_name.lower() in ['nan', '']:
+            try:
+                customer_name = str(row['Customer']).strip()
+                platform = str(row['Platform']).strip()
+                
+                # Skip invalid entries
+                if pd.isna(customer_name) or customer_name.lower() in ['nan', '']:
+                    continue
+                
+                # Get role from platform
+                role = self.platform_role_mapping.get(platform, 'customer')
+                
+                # Generate domain from customer name
+                domain = self._generate_domain_from_name(customer_name)
+                
+                # Store mapping (avoid duplicates by using domain as key)
+                if domain not in self.mappings:
+                    self.mappings[domain] = {
+                        'organization': customer_name,
+                        'platform': platform,
+                        'role': f"={role}",
+                        'primary_role': f"={role}",
+                        'roles': [f"={role}"],
+                        'sheet': sheet_name
+                    }
+                    customers_processed += 1
+                    print(f"      ✅ {customer_name} ({domain}) → {role}")
+                else:
+                    print(f"      ⚠️  Duplicate domain {domain} for {customer_name}, keeping existing")
+                    
+            except Exception as e:
+                print(f"      ❌ Error processing row in sheet '{sheet_name}': {e}")
                 continue
-            
-            # Get role from platform
-            role = self.platform_role_mapping.get(platform, 'customer')
-            
-            # Generate domain from customer name
-            domain = self._generate_domain_from_name(customer_name)
-            
-            # Store mapping (avoid duplicates by using domain as key)
-            if domain not in self.mappings:
-                self.mappings[domain] = {
-                    'organization': customer_name,
-                    'platform': platform,
-                    'role': f"={role}",
-                    'primary_role': f"={role}",
-                    'roles': [f"={role}"],
-                    'sheet': sheet_name
-                }
-                customers_processed += 1
-                print(f"      ✅ {customer_name} ({domain}) → {role}")
-            else:
-                print(f"      ⚠️  Duplicate domain {domain} for {customer_name}, keeping existing")
         
         return customers_processed
     
@@ -146,34 +159,44 @@ class CustomerRoleMappingManager:
         """Process High Tech sheet (assume all are HT)"""
         customers_processed = 0
         
+        # Check if required columns exist
+        if 'Customer' not in df.columns:
+            print(f"   ⚠️  Sheet '{sheet_name}' missing 'Customer' column, skipping")
+            return 0
+        
         for _, row in df.iterrows():
-            customer_name = str(row['Customer']).strip()
-            
-            # Skip invalid entries
-            if pd.isna(customer_name) or customer_name.lower() in ['nan', '']:
+            try:
+                customer_name = str(row['Customer']).strip()
+                
+                # Skip invalid entries
+                if pd.isna(customer_name) or customer_name.lower() in ['nan', '']:
+                    continue
+                
+                # All HT customers get GoS-HT role
+                role = 'GoS-HT'
+                platform = 'HT'
+                
+                # Generate domain from customer name
+                domain = self._generate_domain_from_name(customer_name)
+                
+                # Store mapping (avoid duplicates)
+                if domain not in self.mappings:
+                    self.mappings[domain] = {
+                        'organization': customer_name,
+                        'platform': platform,
+                        'role': f"={role}",
+                        'primary_role': f"={role}",
+                        'roles': [f"={role}"],
+                        'sheet': sheet_name
+                    }
+                    customers_processed += 1
+                    print(f"      ✅ {customer_name} ({domain}) → {role}")
+                else:
+                    print(f"      ⚠️  Duplicate domain {domain} for {customer_name}, keeping existing")
+                    
+            except Exception as e:
+                print(f"      ❌ Error processing row in sheet '{sheet_name}': {e}")
                 continue
-            
-            # All HT customers get GoS-HT role
-            role = 'GoS-HT'
-            platform = 'HT'
-            
-            # Generate domain from customer name
-            domain = self._generate_domain_from_name(customer_name)
-            
-            # Store mapping (avoid duplicates)
-            if domain not in self.mappings:
-                self.mappings[domain] = {
-                    'organization': customer_name,
-                    'platform': platform,
-                    'role': f"={role}",
-                    'primary_role': f"={role}",
-                    'roles': [f"={role}"],
-                    'sheet': sheet_name
-                }
-                customers_processed += 1
-                print(f"      ✅ {customer_name} ({domain}) → {role}")
-            else:
-                print(f"      ⚠️  Duplicate domain {domain} for {customer_name}, keeping existing")
         
         return customers_processed
     

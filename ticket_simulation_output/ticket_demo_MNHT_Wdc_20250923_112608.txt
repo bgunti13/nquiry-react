@@ -1,0 +1,33 @@
+
+SUPPORT TICKET - MNHT
+============================================================
+
+TICKET INFORMATION
+------------------
+Ticket ID: MNHT-20250923112608
+Category: MNHT
+Created Date: 2025-09-23T11:26:08.445440
+Customer: Wdc
+Customer Email: abc@wdc.com
+
+ORIGINAL QUERY
+--------------
+Salesforce accounts are not syncing to MN PROD
+
+TICKET DETAILS
+--------------
+Description: Salesforce accounts are not syncing to MN PROD
+Area: Other
+Affected Version: Fall 2022
+Project: Model N Hi-Tech (MNHT)
+Work Type: Service Request
+Request Type: Product Support
+Summary: MNHT Support: Salesforce accounts are not syncing to MN PROD
+Urgency: Medium
+Impact: Moderate/Limited
+Jsd Suppress Group Email Notification: No
+Support Org: Product Support
+
+============================================================
+Ticket generated on: 2025-09-23 11:26:08
+This is a simulated ticket for demonstration purposes.

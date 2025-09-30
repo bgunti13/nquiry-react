@@ -1,0 +1,28 @@
+============================================================
+TICKET SIMULATION - STREAMLIT CREATED
+============================================================
+Ticket ID: TICKET_MNHT_AMD_20250924_114300
+Category: MNHT
+Customer: AMD
+Created: 2025-09-24 11:43:00
+Original Query: Salesforce accounts are not syncing to MN PROD
+------------------------------------------------------------
+TICKET FIELDS:
+------------------------------------------------------------
+Customer Email: john@amd.com
+Description: User Query: Salesforce accounts are not syncing to MN PROD
+
+No relevant information was found in the knowledge base. Please investigate and provide assistance.
+Priority: Medium
+Area Affected: other
+Version Affected: latest
+Environment: production
+Project: Model N Hi-Tech (MNHT)
+Work Type: Service Request
+Request Type: Product Support
+Summary: Based on description
+Urgency: Medium
+Impact: Moderate/Limited
+Jsd Suppress Group Email Notification: No
+Support Org: Product Support
+============================================================
