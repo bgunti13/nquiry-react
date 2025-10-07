@@ -376,39 +376,24 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                     source=state.get('classified_source', '')
                 )
                 
-                # Check if response came from JIRA or combined sources - always offer ticket creation 
+                # Always offer ticket creation for all responses
                 source = state.get('last_search_source', state.get('classified_source', ''))
                 if source == 'JIRA':
                     print("📋 JIRA response provided - offering ticket creation option")
                     state['formatted_response'] = formatted_response + "\n\n❓ This response is based on JIRA ticket data. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
-                    state['ticket_creation_suggested'] = True
-                    return state
                 elif source == 'MULTI':
                     print("📋 Combined JIRA + MindTouch response provided - offering ticket creation option")
                     state['formatted_response'] = formatted_response + "\n\n❓ This response combines information from JIRA tickets and documentation. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
-                    state['ticket_creation_suggested'] = True
-                    return state
-                
-                # Secondary check: Even if Bedrock says sufficient, check for insufficient content indicators
-                insufficient_indicators = [
-                    "no specific resolution steps are provided",
-                    "cannot provide actionable steps", 
-                    "no resolution details are included",
-                    "more context is needed",
-                    "further investigation",
-                    "does not contain complete details",
-                    "without more details",
-                    "unfortunately, the provided search result does not contain"
-                ]
-                
-                response_lower = formatted_response.lower()
-                if any(indicator in response_lower for indicator in insufficient_indicators):
-                    print("🤖 Secondary check: Response contains insufficient information indicators - suggesting ticket creation")
-                    state['formatted_response'] = formatted_response + "\n\n❓ If you are not satisfied with this response, would you like me to create a support ticket for further assistance?"
-                    state['ticket_creation_suggested'] = True
+                elif source == 'MINDTOUCH':
+                    print("📋 MindTouch response provided - offering ticket creation option")
+                    state['formatted_response'] = formatted_response + "\n\n❓ This response is based on documentation. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
                 else:
-                    state['formatted_response'] = formatted_response
-                    state['ticket_creation_suggested'] = False
+                    print("📋 General response provided - offering ticket creation option")
+                    state['formatted_response'] = formatted_response + "\n\n❓ If you are not satisfied with this response, would you like me to create a support ticket for further assistance?"
+                
+                # Always suggest ticket creation
+                state['ticket_creation_suggested'] = True
+                return state
             else:
                 print("❌ Bedrock returned an error.")
                 state['error'] = bedrock_decision.get('error', 'Unknown error')

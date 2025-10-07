@@ -1,0 +1,27 @@
+============================================================
+TICKET SIMULATION - STREAMLIT CREATED
+============================================================
+Ticket ID: TICKET_COPS_Wdc_20251006_194419
+Category: COPS
+Customer: Wdc
+Created: 2025-10-06 19:44:19
+Original Query: Without changing anything in our scheduled Incremental DataMart refresh job in QAS., we need you to please run ad hoc (onetime) Incremental DataMart refresh in QAS. We need this to be run by you as soon as possible for our UAT testing, we want to see few things to be updated in our DM tables.
+------------------------------------------------------------
+TICKET FIELDS:
+------------------------------------------------------------
+Customer Email: mark@wdc.com
+Description: User Query: Without changing anything in our scheduled Incremental DataMart refresh job in QAS., we need you to please run ad hoc (onetime) Incremental DataMart refresh in QAS. We need this to be run by you as soon as possible for our UAT testing, we want to see few things to be updated in our DM tables.
+
+No relevant information was found in the knowledge base. Please investigate and provide assistance.
+Priority: Medium
+Area Affected: other
+Version Affected: latest
+Environment: production
+Project: COPS
+Work Type: Task
+Summary: Based on description
+Support Projects: MNHT or MNLS based on customer
+Cloud Environmental List: production
+Cloud Operations Request Type: Change Request â€“ DB
+Cloud Operations Request Date: Optional
+============================================================

@@ -14,7 +14,6 @@ import traceback
 # Configure the Streamlit page
 st.set_page_config(
     page_title="nQuiry - Intelligent Query Assistant",
-    page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -212,13 +211,17 @@ def get_theme_css():
     
     /* Message styling */
     .user-message {{
-        background: {theme_vars['chat_user_bg']};
-        color: white;
+        background: {theme_vars['chat_bot_bg']};
+        color: {theme_vars['chat_bot_text']};
         padding: 1rem 1.5rem;
-        border-radius: 18px 18px 4px 18px;
+        border-radius: 18px 18px 18px 4px;
         margin: 0.5rem 0;
-        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
+        border-left: 3px solid {theme_vars['accent_color']};
+        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
         animation: slideInRight 0.3s ease-out;
+        line-height: 1.6;
+        font-size: 14px;
+        border: 1px solid {theme_vars['border_color']};
     }}
     
     .bot-message {{
@@ -326,15 +329,32 @@ def get_theme_css():
         border: 1px solid {theme_vars['input_border']};
         padding: 0.75rem 1rem;
         font-size: 0.95rem;
-        background-color: {theme_vars['input_bg']};
-        color: {theme_vars['text_color']};
+        background-color: {theme_vars['input_bg']} !important;
+        color: {theme_vars['text_color']} !important;
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }}
     
     .stTextInput > div > div > input:focus {{
-        border-color: #9ca3af;
-        box-shadow: 0 0 0 3px rgba(156, 163, 175, 0.2);
-        outline: none;
+        border-color: #9ca3af !important;
+        box-shadow: 0 0 0 3px rgba(156, 163, 175, 0.2) !important;
+        outline: none !important;
+        background-color: {theme_vars['input_bg']} !important;
+        color: {theme_vars['text_color']} !important;
+    }}
+    
+    /* Prevent input from going grey/disabled */
+    .stTextInput > div > div > input:disabled,
+    .stTextInput > div > div > input[disabled] {{
+        background-color: {theme_vars['input_bg']} !important;
+        color: {theme_vars['text_color']} !important;
+        opacity: 1 !important;
+    }}
+    
+    /* Override any grey state during processing */
+    .stTextInput > div > div > input {{
+        background-color: {theme_vars['input_bg']} !important;
+        color: {theme_vars['text_color']} !important;
+    }}
         background-color: {theme_vars['input_bg']};
     }}
     
@@ -364,6 +384,38 @@ def get_theme_css():
         background: {theme_vars['button_hover']};
         transform: translateY(-1px);
         box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    }}
+    
+    /* Send button specific styling - Match username styling */
+    .stForm .stButton > button,
+    form .stButton > button,
+    div[data-testid="stForm"] .stButton > button,
+    .stButton > button[kind="formSubmit"] {{
+        background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%) !important;
+        color: #1f2937 !important;
+        border: 1px solid #7dd3fc !important;
+        border-radius: 10px !important;
+        padding: 0.4rem 1rem !important;
+        font-weight: 600 !important;
+        font-size: 0.85rem !important;
+        box-shadow: 0 2px 6px rgba(125, 211, 252, 0.2) !important;
+        transition: all 0.2s ease !important;
+        cursor: pointer !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
+    }}
+    
+    .stForm .stButton > button:hover,
+    form .stButton > button:hover,
+    div[data-testid="stForm"] .stButton > button:hover,
+    .stButton > button[kind="formSubmit"]:hover {{
+        background: linear-gradient(135deg, #bae6fd 0%, #93c5fd 100%) !important;
+        border-color: #60a5fa !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 8px rgba(96, 165, 250, 0.3) !important;
+        color: #1f2937 !important;
     }}
     
     /* Sidebar button styling */
@@ -513,6 +565,126 @@ def get_theme_css():
         background-color: #e0f2fe !important;
         color: #333333 !important;
     }}
+    
+    /* Reduce spacing between selectbox and form */
+    [data-testid="stSelectbox"] {{
+        margin-bottom: 0.5rem !important;
+    }}
+    
+    /* Reduce spacing around form elements */
+    [data-testid="stForm"] {{
+        margin-top: 0.5rem !important;
+    }}
+    
+    /* Reduce spacing in main content area */
+    .block-container .element-container {{
+        margin-bottom: 0.5rem !important;
+    }}
+    
+    /* Ultra-compact sidebar spacing */
+    section[data-testid="stSidebar"] .element-container {{
+        margin-bottom: 0.1rem !important;
+        margin-top: 0.1rem !important;
+    }}
+    
+    /* Minimize spacing between sidebar sections */
+    section[data-testid="stSidebar"] .stMarkdown {{
+        margin-bottom: 0.2rem !important;
+        margin-top: 0.2rem !important;
+    }}
+    
+    /* Ultra-tight spacing around buttons in sidebar */
+    section[data-testid="stSidebar"] .stButton {{
+        margin-bottom: 0.15rem !important;
+        margin-top: 0.15rem !important;
+    }}
+    
+    /* Minimize expander spacing */
+    section[data-testid="stSidebar"] .streamlit-expanderHeader {{
+        margin-bottom: 0.1rem !important;
+        margin-top: 0.1rem !important;
+        padding: 0.4rem 0.75rem !important;
+    }}
+    
+    /* Ultra-compact dividers in sidebar */
+    section[data-testid="stSidebar"] hr {{
+        margin: 0.2rem 0 !important;
+    }}
+    
+    /* Minimize spacing in sidebar headers */
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2, 
+    section[data-testid="stSidebar"] h3 {{
+        margin-bottom: 0.15rem !important;
+        margin-top: 0.2rem !important;
+        line-height: 1.2 !important;
+    }}
+    
+    /* Compact sidebar buttons */
+    section[data-testid="stSidebar"] .stButton button {{
+        padding: 0.4rem 0.75rem !important;
+        font-size: 0.85rem !important;
+    }}
+    
+    /* Reduce expander content padding */
+    section[data-testid="stSidebar"] .streamlit-expanderContent {{
+        padding-top: 0.2rem !important;
+        padding-bottom: 0.2rem !important;
+    }}
+    
+    /* Minimize caption spacing */
+    section[data-testid="stSidebar"] .stCaptionContainer {{
+        margin-top: 0.1rem !important;
+        margin-bottom: 0.1rem !important;
+    }}
+    
+    /* Minimize overall sidebar padding */
+    section[data-testid="stSidebar"] > div {{
+        padding-top: 0.1rem !important;
+        padding-bottom: 0.5rem !important;
+    }}
+    
+    /* Remove top padding from sidebar content */
+    section[data-testid="stSidebar"] .block-container {{
+        padding-top: 0 !important;
+        margin-top: 0 !important;
+    }}
+    
+    /* Target sidebar wrapper for minimal spacing */
+    section[data-testid="stSidebar"] > div > div {{
+        padding-top: 0 !important;
+        margin-top: 0 !important;
+    }}
+    
+    /* Remove spacing from first element in sidebar */
+    section[data-testid="stSidebar"] > div > div > div:first-child {{
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+    }}
+    
+    /* Ultra-compact conversation items */
+    section[data-testid="stSidebar"] .stColumns {{
+        gap: 0.1rem !important;
+    }}
+    
+    /* Minimize text spacing in sidebar */
+    section[data-testid="stSidebar"] p {{
+        margin-bottom: 0.1rem !important;
+        margin-top: 0.1rem !important;
+        line-height: 1.3 !important;
+    }}
+    
+    /* Compact write/caption text */
+    section[data-testid="stSidebar"] .stWrite,
+    section[data-testid="stSidebar"] .stCaption {{
+        margin-bottom: 0.1rem !important;
+        margin-top: 0.1rem !important;
+    }}
+    
+    /* Make sidebar content ultra-tight */
+    section[data-testid="stSidebar"] [data-testid="element-container"] {{
+        margin: 0.05rem 0 !important;
+    }}
 </style>
 """
 
@@ -607,6 +779,25 @@ st.markdown("""
     .stApp .main-title,
     .stApp .sidebar .element-container {
         background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%) !important;
+    }
+    
+    /* Hide the troublesome small blue box element */
+    span.st-emotion-cache-gi0tri.e1hznt4w3,
+    .st-emotion-cache-gi0tri,
+    span[class*="st-emotion-cache-gi0tri"],
+    span[class*="e1hznt4w3"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        width: 0 !important;
+        height: 0 !important;
+    }
+    
+    /* Hide any streamlit generated icons or elements in header area */
+    .main-title span,
+    .main-container span[class*="st-emotion"],
+    h1 span[class*="st-emotion"] {
+        display: none !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1260,36 +1451,52 @@ def display_header():
         pass
     
     with col2:
-        # Main title (center)
-        st.markdown("""
-        <div class="main-container">
-            <h1 class="main-title">🔍 Nquiry</h1>
-        </div>
-        """, unsafe_allow_html=True)
+        # Main title (center) - removed
+        pass
     
     with col3:
-        # User name (top right)
+        # User name dropdown (top right) with logout option
         if customer_info:
             email = customer_info.get('email', 'Unknown')
             user_name = email.split('@')[0] if email != 'Unknown' else 'User'
-            st.markdown(f"""
-            <div style="
-                background: rgba(255,255,255,0.1);
-                padding: 0.3rem 0.8rem;
-                border-radius: 8px;
-                margin-top: 1rem;
-                color: white;
-                font-size: 0.8rem;
-                text-align: right;
-                display: inline-block;
-                float: right;
-            ">
-                👤 {user_name}
-            </div>
-            """, unsafe_allow_html=True)
+            
+            # Create dropdown with username and logout option
+            user_action = st.selectbox(
+                "User Menu",
+                options=[f"👤 {user_name}", "Logout"],
+                index=0,
+                key="user_dropdown",
+                label_visibility="collapsed"
+            )
+            
+            # Handle logout action
+            if user_action == "Logout":
+                # Clear all session state to logout user
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                
+                # Reinitialize session state
+                initialize_session_state()
+                
+                # Force rerun to show login page
+                st.rerun()
 
 def display_system_status():
     """Display system status in sidebar"""
+    
+    # Add elegant Nquiry title at the top of sidebar
+    st.sidebar.markdown("""
+    <h1 style="
+        color: #1f2937;
+        font-size: 2.2rem;
+        font-weight: 700;
+        margin: 0 0 2rem 0;
+        padding: 0;
+        text-align: left;
+        letter-spacing: -0.5px;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    ">Nquiry</h1>
+    """, unsafe_allow_html=True)
     
     st.sidebar.markdown("### 👤 Customer Info")
     
@@ -1376,21 +1583,22 @@ def display_system_status():
                                         st.rerun()
 
                                 st.caption(f"⏰ {timestamp} • {message_count} messages")
-                                st.divider()
+                                st.markdown("<div style='border-bottom: 1px solid #e5e7eb; margin: 0.2rem 0;'></div>", unsafe_allow_html=True)
             else:
                 with st.sidebar.expander("Recent Conversations", expanded=False):
                     st.write("No past conversations found")
                     st.caption("Start a conversation to see history")
             
+            st.sidebar.markdown("<div style='margin: 0.3rem 0;'></div>", unsafe_allow_html=True)
+            
             # Start New Conversation Button
-            st.sidebar.markdown("---")  # Add separator
             if st.sidebar.button("🆕 Start New Conversation", use_container_width=True, type="primary"):
                 # Clear current chat history to start fresh
                 st.session_state.chat_history = []
                 st.success("✅ Started new conversation!")
                 st.rerun()
             
-            st.sidebar.markdown("---")  # Add separator
+            st.sidebar.markdown("<div style='margin: 0.3rem 0;'></div>", unsafe_allow_html=True)
             
             # Recent Tickets Dropdown
             st.sidebar.markdown("### 🎫 Recent Tickets")
@@ -1507,12 +1715,14 @@ def display_chat_history():
                     margin: 1rem 0;
                 ">
                     <div style="
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        color: white;
+                        background: #f8fafc;
+                        color: #374151;
                         padding: 1rem 1.5rem;
-                        border-radius: 20px 20px 5px 20px;
+                        border-radius: 18px 18px 18px 4px;
                         max-width: 70%;
-                        box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3);
+                        border-left: 3px solid #3b82f6;
+                        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+                        border: 1px solid #e5e7eb;
                     ">
                         <div style="font-weight: bold; margin-bottom: 0.5rem;">
                             You <small style="opacity:0.7; font-weight: normal;">({timestamp})</small>
@@ -1583,15 +1793,12 @@ def process_query(query, processor, user_id):
             status_text = st.empty()
             
             # Simulate processing stages
-            status_text.text("🎫 Searching JIRA...")
             progress_bar.progress(25)
             time.sleep(0.5)
             
-            status_text.text("📄 Searching MindTouch...")
             progress_bar.progress(50)
             time.sleep(0.5)
             
-            status_text.text("🔍 Processing results...")
             progress_bar.progress(75)
             time.sleep(0.5)
             
@@ -1820,7 +2027,6 @@ def main():
     display_header()
     
     # Force sidebar to be visible
-    st.sidebar.title("Nquiry Assistant")
     
     # Sidebar
     display_system_status()
@@ -1847,127 +2053,210 @@ def main():
                     if processor:
                         st.session_state.nquiry_processor = processor
                         st.session_state.last_customer_email = customer_email
-                        st.success("✅ nQuiry initialized successfully!")
+                        st.success("✅ Nquiry initialized successfully!")
                         st.rerun()
                     else:
-                        st.error("❌ Failed to initialize nQuiry")
+                        st.error("❌ Failed to initialize Nquiry")
         return
     
     # Main chat interface
     
-    # Example queries dropdown for compact UI
+    # Perplexity-style unified search interface
+    st.markdown("""
+    <style>
+    .perplexity-container {
+        max-width: 800px;
+        margin: 2rem auto;
+        padding: 0;
+    }
+    
+    .help-text {
+        text-align: center;
+        font-size: 1.5rem;
+        font-weight: 400;
+        color: #374151;
+        margin-bottom: 2rem;
+        line-height: 1.4;
+    }
+    
+    .example-queries {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .example-title {
+        font-size: 1rem;
+        color: #64748b;
+        margin-bottom: 1rem;
+        font-weight: 500;
+        text-align: center;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Create the main container
+    st.markdown('<div class="perplexity-container">', unsafe_allow_html=True)
+    
+    # Help text
+    st.markdown('<div class="help-text">What can I help with?</div>', unsafe_allow_html=True)
+    
+    # Initialize session state for input focus
+    if 'input_focused' not in st.session_state:
+        st.session_state.input_focused = False
+    if 'show_suggestions' not in st.session_state:
+        st.session_state.show_suggestions = False
+    
+    # Example queries 
     example_queries = [
-        "Try these example queries",
         "How do I reset my password?",
         "What are the system requirements?", 
         "How do I submit a bug report?",
         "Who should I contact for support?",
-        "How do I update my profile?"
+        "How do I update my profile?",
+        "How to configure MFA settings?"
     ]
     
-    selected_query = st.selectbox(
-        "💡 Quick Start",
-        example_queries,
-        key="example_query_dropdown",
-        help="Select a common query to get started quickly"
+    # Create a single input field that's always visible
+    query = st.text_input(
+        "Search Query",
+        placeholder="Ask anything or @mention a Space",
+        key="search_input",
+        label_visibility="collapsed",
+        help="Type your question here"
     )
     
-    # Process selected example query
-    if selected_query and selected_query != "Try these example queries":
-        # Get user ID for MongoDB
-        user_id = st.session_state.customer_info.get('email', 'demo_user') if st.session_state.customer_info else 'demo_user'
+    # Show example queries only when input is empty (regardless of chat history)
+    if not query or query.strip() == "":
+        with st.expander("💡 Try asking:", expanded=True):
+            st.markdown("**Choose from these example queries:**")
+            
+            # Show suggestions in a clean list
+            for i, suggestion in enumerate(example_queries):
+                if st.button(f"🔍 {suggestion}", key=f"suggestion_{i}", use_container_width=True):
+                    # Process the selected query immediately
+                    user_id = st.session_state.customer_info.get('email', 'demo_user') if st.session_state.customer_info else 'demo_user'
+                    
+                    # Add to chat and process
+                    timestamp = datetime.now().strftime("%H:%M")
+                    st.session_state.chat_history.append({
+                        'type': 'user',
+                        'content': suggestion,
+                        'timestamp': timestamp
+                    })
+                    
+                    if st.session_state.nquiry_processor and st.session_state.nquiry_processor != "placeholder":
+                        response = process_query(suggestion, st.session_state.nquiry_processor, user_id)
+                        bot_timestamp = datetime.now().strftime("%H:%M")
+                        st.session_state.chat_history.append({
+                            'type': 'bot',
+                            'content': response,
+                            'timestamp': bot_timestamp
+                        })
+                        
+                        # Force refresh of sidebar
+                        if 'sidebar_refresh_trigger' not in st.session_state:
+                            st.session_state.sidebar_refresh_trigger = 0
+                        st.session_state.sidebar_refresh_trigger += 1
+                    
+                    st.rerun()
+    
+    # Handle manual query submission
+    if query and query.strip():
+        # Check if this is a new query (different from the last processed one)
+        last_processed_query = st.session_state.get('last_processed_query', '')
         
-        # Add to chat and process
-        timestamp = datetime.now().strftime("%H:%M")
-        st.session_state.chat_history.append({
-            'type': 'user',
-            'content': selected_query,
-            'timestamp': timestamp
-        })
-        
-        # Note: User message is saved to MongoDB by the processor.process_query() method
-        # No need to save here to avoid duplicates
-        
-        if st.session_state.nquiry_processor and st.session_state.nquiry_processor != "placeholder":
-            response = process_query(selected_query, st.session_state.nquiry_processor, user_id)
-            bot_timestamp = datetime.now().strftime("%H:%M")
+        if query.strip() != last_processed_query and not st.session_state.get('processing_query', False):
+            # Set processing flag and store the query
+            st.session_state.processing_query = True
+            st.session_state.last_processed_query = query.strip()
+            
+            # Process the manual query
+            user_id = st.session_state.customer_info.get('email', 'demo_user') if st.session_state.customer_info else 'demo_user'
+            
+            # Add to chat and process
+            timestamp = datetime.now().strftime("%H:%M")
             st.session_state.chat_history.append({
-                'type': 'bot',
-                'content': response,
-                'timestamp': bot_timestamp
+                'type': 'user',
+                'content': query.strip(),
+                'timestamp': timestamp
             })
             
-            # Note: Bot response is already saved to MongoDB by the processor.process_query() method
-            # No need to save again here to avoid duplicates
+            if st.session_state.nquiry_processor and st.session_state.nquiry_processor != "placeholder":
+                response = process_query(query.strip(), st.session_state.nquiry_processor, user_id)
+                bot_timestamp = datetime.now().strftime("%H:%M")
+                st.session_state.chat_history.append({
+                    'type': 'bot',
+                    'content': response,
+                    'timestamp': bot_timestamp
+                })
+                
+                # Force refresh of sidebar
+                if 'sidebar_refresh_trigger' not in st.session_state:
+                    st.session_state.sidebar_refresh_trigger = 0
+                st.session_state.sidebar_refresh_trigger += 1
             
-            # Force refresh of sidebar to show updated recent conversations
-            if 'sidebar_refresh_trigger' not in st.session_state:
-                st.session_state.sidebar_refresh_trigger = 0
-            st.session_state.sidebar_refresh_trigger += 1
-        
-        # Reset the dropdown to default after processing
-        st.session_state.example_query_dropdown = "Try these example queries"
-        st.rerun()
+            # Clear processing flag and rerun to clear input
+            st.session_state.processing_query = False
+            st.rerun()
     
-    st.markdown("---")
+    # Reset processing flag if no query
+    elif not query or not query.strip():
+        st.session_state.processing_query = False
+    
+    st.markdown('</div>', unsafe_allow_html=True)
     
     # Display chat history
     display_chat_history()
     
-    # Query input
-    with st.form("query_form", clear_on_submit=True):
-        col1, col2 = st.columns([4, 1])
+    # Always show an input field for follow-up questions after chat history
+    if len(st.session_state.chat_history) > 0:
+        st.markdown('<div style="margin-top: 1rem;"></div>', unsafe_allow_html=True)
         
-        with col1:
-            user_query = st.text_input(
-                "Ask me anything:",
-                placeholder="How do I reset my password?",
-                label_visibility="collapsed"
-            )
+        follow_up_query = st.text_input(
+            "Follow-up Question",
+            placeholder="Ask another question...",
+            key="follow_up_input",
+            label_visibility="collapsed",
+            help="Type your follow-up question here"
+        )
         
-        with col2:
-            submit_button = st.form_submit_button("Send 🚀", use_container_width=True)
-    
-    # Process query if submitted
-    if submit_button and user_query:
-        # Get user ID for MongoDB
-        user_id = st.session_state.customer_info.get('email', 'demo_user') if st.session_state.customer_info else 'demo_user'
-        
-        # Add user message to chat history
-        timestamp = datetime.now().strftime("%H:%M")
-        st.session_state.chat_history.append({
-            'type': 'user',
-            'content': user_query,
-            'timestamp': timestamp
-        })
-        
-        # Note: User message is saved to MongoDB by the processor.process_query() method
-        # No need to save here to avoid duplicates
-        
-        # Process query
-        if st.session_state.nquiry_processor and st.session_state.nquiry_processor != "placeholder":
-            response = process_query(user_query, st.session_state.nquiry_processor, user_id)
+        # Handle follow-up query submission
+        if follow_up_query and follow_up_query.strip():
+            # Check if this is a new query
+            last_followup_query = st.session_state.get('last_followup_query', '')
             
-            # Add bot response to chat history
-            bot_timestamp = datetime.now().strftime("%H:%M")
-            st.session_state.chat_history.append({
-                'type': 'bot',
-                'content': response,
-                'timestamp': bot_timestamp
-            })
-            
-            # Note: Bot response is already saved to MongoDB by the processor.process_query() method
-            # No need to save again here to avoid duplicates
-            
-            # Force refresh of sidebar to show updated recent conversations
-            if 'sidebar_refresh_trigger' not in st.session_state:
-                st.session_state.sidebar_refresh_trigger = 0
-            st.session_state.sidebar_refresh_trigger += 1
-        else:
-            st.error("nQuiry processor not initialized")
-        
-        # Rerun to update the display
-        st.rerun()
+            if follow_up_query.strip() != last_followup_query:
+                st.session_state.last_followup_query = follow_up_query.strip()
+                
+                # Process the follow-up query
+                user_id = st.session_state.customer_info.get('email', 'demo_user') if st.session_state.customer_info else 'demo_user'
+                
+                # Add to chat and process
+                timestamp = datetime.now().strftime("%H:%M")
+                st.session_state.chat_history.append({
+                    'type': 'user',
+                    'content': follow_up_query.strip(),
+                    'timestamp': timestamp
+                })
+                
+                if st.session_state.nquiry_processor and st.session_state.nquiry_processor != "placeholder":
+                    response = process_query(follow_up_query.strip(), st.session_state.nquiry_processor, user_id)
+                    bot_timestamp = datetime.now().strftime("%H:%M")
+                    st.session_state.chat_history.append({
+                        'type': 'bot',
+                        'content': response,
+                        'timestamp': bot_timestamp
+                    })
+                    
+                    # Force refresh of sidebar
+                    if 'sidebar_refresh_trigger' not in st.session_state:
+                        st.session_state.sidebar_refresh_trigger = 0
+                    st.session_state.sidebar_refresh_trigger += 1
+                
+                st.rerun()
     
     # Display ticket creation form if needed
     display_ticket_creation_form()

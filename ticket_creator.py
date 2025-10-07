@@ -204,30 +204,35 @@ class TicketCreator:
     def determine_ticket_category(self, query: str, customer: str) -> str:
         """
         Determine the appropriate ticket category based on query content and customer
+        Keyword matching takes precedence over customer mapping
         """
         query_lower = query.lower()
         
-        # Check each category's keywords
+        # Check each category's keywords first (this should take precedence)
         for category, config in self.ticket_config["ticket_categories"].items():
             keywords = config.get("keywords", [])
             for keyword in keywords:
                 if keyword.lower() in query_lower:
+                    print(f"🎯 Keyword match: '{keyword}' found in query -> Category: {category}")
                     return category
         
-        # Customer-specific fallback mapping
+        # If no keyword match found, use customer-specific fallback mapping
         customer_to_category = {
             'AMD': 'MNHT',
-            'NOVARTIS': 'MNLS',
+            'NOVARTIS': 'MNLS', 
             'WDC': 'MNHT',
             'ABBOTT': 'MNHT',
             'ABBVIE': 'MNLS'
         }
         
         if customer in customer_to_category:
+            print(f"🏢 Customer fallback: {customer} -> Category: {customer_to_category[customer]}")
             return customer_to_category[customer]
         
         # Default fallback
-        return self.ticket_config.get("default_category", "MNHT")
+        default_category = self.ticket_config.get("default_category", "MNHT")
+        print(f"⚠️ Using default category: {default_category}")
+        return default_category
     
     def get_required_fields_for_category(self, category: str) -> Dict:
         """Get required fields for a specific category"""

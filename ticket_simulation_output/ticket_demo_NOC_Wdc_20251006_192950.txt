@@ -1,0 +1,25 @@
+============================================================
+TICKET SIMULATION - STREAMLIT CREATED
+============================================================
+Ticket ID: TICKET_NOC_Wdc_20251006_192950
+Category: NOC
+Customer: Wdc
+Created: 2025-10-06 19:29:50
+Original Query: RODB (Production) SQL Database password expiring for  ELISAJW in 2 days AMD2PRD DB.
+------------------------------------------------------------
+TICKET FIELDS:
+------------------------------------------------------------
+Customer Email: mark@wdc.com
+Description: User Query: RODB (Production) SQL Database password expiring for  ELISAJW in 2 days AMD2PRD DB.
+
+No relevant information was found in the knowledge base. Please investigate and provide assistance.
+Priority: Medium
+Area Affected: other
+Version Affected: latest
+Environment: production
+Project: MNLS, MNHT
+Work Type: Task
+Summary: Generated based on description
+Cloud Operations Request Type: production
+Cloud Operations Request Date: Alert from NOC to COPS
+============================================================

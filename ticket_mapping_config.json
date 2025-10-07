@@ -37,6 +37,9 @@
         "provisioning", 
         "troubleshooting",
         "db refresh",
+        "database refresh",
+        "datamart refresh",
+        "incremental datamart", 
         "db change request",
         "datafix",
         "file request",
@@ -45,7 +48,10 @@
         "custom task",
         "database",
         "deploy",
-        "provision"
+        "provision",
+        "refresh job",
+        "batch job",
+        "data refresh"
       ],
       "required_fields": {
         "description": "Description of the issue"
