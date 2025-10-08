@@ -268,13 +268,13 @@ class IntelligentQueryProcessor:
 
 
 
-    def analyze_with_bedrock(self, query: str, search_results: List[Tuple[Dict, float]], source: str = "MULTI") -> Dict:
+    def analyze_with_bedrock(self, query: str, search_results: List[Tuple[Dict, float]], source: str = "MULTI", context: str = "") -> Dict:
         """
         Use AWS Bedrock to analyze search results and decide next steps.
         """
         try:
             # First, format the search results into a readable format
-            formatted_response = self.response_formatter.format_search_results(query, search_results, source)
+            formatted_response = self.response_formatter.format_search_results(query, search_results, source, context)
 
             print("🤖 Formatted Bedrock Response:")
             print(formatted_response)
@@ -283,12 +283,12 @@ class IntelligentQueryProcessor:
             evaluation_prompt = f"""
 You are an expert system evaluating whether a search result adequately answers a user's query.
 
-USER QUERY: {query}
+{'CONVERSATION CONTEXT:' + chr(10) + context + chr(10) + chr(10) if context else ''}USER QUERY: {query}
 
 SEARCH RESULT RESPONSE:
 {formatted_response}
 
-Please analyze the above response and determine if it provides actionable resolution steps.
+Please analyze the above response and determine if it provides actionable resolution steps.{' Consider the conversation context when evaluating the response.' if context else ''}
 
 The response should be considered INSUFFICIENT if it contains phrases like:
 - "Unfortunately, no specific resolution steps are provided"
@@ -304,7 +304,7 @@ The response should be considered SUFFICIENT only if it provides:
 - Clear, step-by-step resolution instructions
 - Specific actions the user can take
 - Complete troubleshooting guidance
-- Definitive answers to the user's question
+- Definitive answers to the user's question{' - Proper follow-up to previous conversation points' if context else ''}
 
 Respond with ONLY one of these two options:
 - SUFFICIENT: if the response provides clear, actionable resolution steps
@@ -357,12 +357,13 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
 
             search_results = state.get('search_results', [])
             query = state.get('query', '')
+            context = state.get('context', '')
 
             # Determine the source based on state or results
             source = state.get('last_search_source', 'MULTI')
             
             # Use AWS Bedrock to analyze the results
-            bedrock_decision = self.analyze_with_bedrock(query, search_results, source)
+            bedrock_decision = self.analyze_with_bedrock(query, search_results, source, context)
 
             if bedrock_decision.get('action') == 'create_ticket':
                 print("🤖 Bedrock suggests creating a ticket due to insufficient information.")
@@ -373,7 +374,8 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                 formatted_response = self.response_formatter.format_search_results(
                     query=query,
                     results=search_results,
-                    source=state.get('classified_source', '')
+                    source=state.get('classified_source', ''),
+                    context=context
                 )
                 
                 # Always offer ticket creation for all responses
@@ -467,7 +469,8 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                 formatted_results = self.response_formatter.format_search_results(
                     query=state.get('query', ''),
                     results=results_with_scores,
-                    source=source
+                    source=source,
+                    context=state.get('context', '')
                 )
                 print(formatted_results)
 
@@ -524,7 +527,8 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                     state['formatted_response'] = self.response_formatter.format_search_results(
                         query=state.get('query', ''),
                         results=results_with_scores,
-                        source=state.get('classified_source', '')
+                        source=state.get('classified_source', ''),
+                        context=state.get('context', '')
                     )
                 else:
                     state['formatted_response'] = "✅ No new ticket created. No relevant existing issues found."

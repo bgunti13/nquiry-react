@@ -205,16 +205,26 @@ class TicketCreator:
         """
         Determine the appropriate ticket category based on query content and customer
         Keyword matching takes precedence over customer mapping
+        Prioritizes longer, more specific keywords over shorter ones
         """
         query_lower = query.lower()
         
-        # Check each category's keywords first (this should take precedence)
+        # Collect all matching keywords with their categories and lengths
+        matches = []
         for category, config in self.ticket_config["ticket_categories"].items():
             keywords = config.get("keywords", [])
             for keyword in keywords:
                 if keyword.lower() in query_lower:
-                    print(f"🎯 Keyword match: '{keyword}' found in query -> Category: {category}")
-                    return category
+                    matches.append((len(keyword), keyword, category))
+        
+        # If matches found, return the category of the longest (most specific) keyword
+        if matches:
+            # Sort by keyword length (descending) to prioritize longer keywords
+            matches.sort(key=lambda x: x[0], reverse=True)
+            longest_keyword = matches[0][1]
+            category = matches[0][2]
+            print(f"🎯 Keyword match: '{longest_keyword}' found in query -> Category: {category}")
+            return category
         
         # If no keyword match found, use customer-specific fallback mapping
         customer_to_category = {

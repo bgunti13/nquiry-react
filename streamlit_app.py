@@ -11,6 +11,14 @@ from main import IntelligentQueryProcessor
 from chat_history_manager import ChatHistoryManager
 import traceback
 
+# Import voice input functionality
+try:
+    from voice_input import create_voice_input_component, add_voice_tips, speak_response
+    VOICE_AVAILABLE = True
+except ImportError as e:
+    VOICE_AVAILABLE = False
+    st.error(f"Voice input not available: {e}")
+
 # Configure the Streamlit page
 st.set_page_config(
     page_title="nQuiry - Intelligent Query Assistant",
@@ -36,7 +44,7 @@ def get_theme_css():
         'chat_bot_text': '#374151',
         'header_bg': 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
         'header_text': '#333333',
-        'sidebar_bg': '#f8fafc',
+        'sidebar_bg': '#e8e8e8',
         'sidebar_text': '#1f2937',
         'input_bg': '#ffffff',
         'input_border': '#d1d5db',
@@ -87,35 +95,142 @@ def get_theme_css():
         color: {theme_vars['text_color']};
     }}
     
-    /* Sidebar styling */
-    .css-1d391kg, .css-1lcbmhc, .st-emotion-cache-16idsys, .st-emotion-cache-1cypcdb {{
-        background-color: {theme_vars['sidebar_bg']} !important;
-        color: {theme_vars['sidebar_text']} !important;
-        display: block !important;
-        visibility: visible !important;
-        width: auto !important;
-        border-right: 1px solid {theme_vars['border_color']};
-    }}
-    
-    /* Force sidebar visibility */
-    .st-emotion-cache-16idsys {{
-        position: relative !important;
-        left: 0 !important;
-        transform: none !important;
-        visibility: visible !important;
-        display: block !important;
-    }}
-    
-    /* Additional sidebar selectors for newer Streamlit versions */
+    /* AGGRESSIVE SIDEBAR VISIBILITY - Override all Streamlit hiding */
     section[data-testid="stSidebar"] {{
-        background-color: {theme_vars['sidebar_bg']} !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        transform: translateX(0px) !important;
+        position: relative !important;
+        left: 0px !important;
+        width: 280px !important;
+        min-width: 280px !important;
+        max-width: 280px !important;
+        background-color: #DCDCDC !important;
+        z-index: 999999 !important;
+    }}
+    
+    /* Force sidebar container to be visible */
+    .css-1d391kg {{
+        display: block !important;
+        visibility: visible !important;
+        background-color: #DCDCDC !important;
+    }}
+    
+    .css-1lcbmhc {{
+        display: block !important;
+        visibility: visible !important;
+        background-color: #DCDCDC !important;
+    }}
+    
+    /* Hide ALL possible collapse controls */
+    button[kind="header"][data-testid="collapsedControl"],
+    button[data-testid="collapsedControl"],
+    .css-1dp5vir,
+    [data-testid="stSidebar"] button[aria-label*="collapse"],
+    [data-testid="stSidebar"] button[aria-label*="Close"],
+    [data-testid="stSidebar"] button[aria-label*="open"],
+    [data-testid="stSidebar"] button[aria-label*="hide"],
+    [data-testid="stSidebar"] .css-1rs6os {{
+        display: none !important;
+        visibility: hidden !important;
+    }}
+    
+    /* Force main content to leave space for sidebar */
+    .main .block-container {{
+        margin-left: 300px !important;
+        padding-left: 1rem !important;
+    }}
+    
+    /* Override any collapsed state */
+    section[data-testid="stSidebar"][aria-expanded="false"],
+    section[data-testid="stSidebar"][aria-expanded="true"],
+    section[data-testid="stSidebar"] {{
         display: block !important;
         visibility: visible !important;
         transform: translateX(0px) !important;
-        min-width: 18rem;
-        width: auto;
-        resize: horizontal;
-        border-right: 1px solid {theme_vars['border_color']};
+        left: 0px !important;
+        width: 280px !important;
+        background-color: #DCDCDC !important;
+    }}
+    
+    /* Sidebar content styling */
+    section[data-testid="stSidebar"] > div:first-child {{
+        background-color: #DCDCDC !important;
+        display: block !important;
+        visibility: visible !important;
+    }}
+    
+    /* Target all sidebar elements */
+    section[data-testid="stSidebar"] * {{
+        background-color: #DCDCDC !important;
+    }}
+    
+    /* Specifically target sidebar containers and boxes */
+    section[data-testid="stSidebar"] .element-container {{
+        background-color: #DCDCDC !important;
+    }}
+    
+    section[data-testid="stSidebar"] .stMarkdown {{
+        background-color: #DCDCDC !important;
+    }}
+    
+    section[data-testid="stSidebar"] .stExpander {{
+        background-color: #DCDCDC !important;
+        border: none !important;
+    }}
+    
+    section[data-testid="stSidebar"] .stExpander > div {{
+        background-color: #DCDCDC !important;
+    }}
+    
+    section[data-testid="stSidebar"] .stButton {{
+        background-color: #DCDCDC !important;
+    }}
+    
+    section[data-testid="stSidebar"] .stButton > button {{
+        background-color: #e8e8e8 !important;
+        border: 1px solid #d0d0d0 !important;
+        color: #333333 !important;
+    }}
+    
+    /* Target button text specifically */
+    section[data-testid="stSidebar"] .stButton > button > div {{
+        background-color: transparent !important;
+    }}
+    
+    /* Target all text elements in sidebar */
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] span,
+    section[data-testid="stSidebar"] div,
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3 {{
+        background-color: transparent !important;
+        background: transparent !important;
+    }}
+    
+    /* Remove any white backgrounds from text containers */
+    section[data-testid="stSidebar"] [data-testid] {{
+        background-color: #DCDCDC !important;
+    }}
+    
+    section[data-testid="stSidebar"] [data-testid] * {{
+        background-color: transparent !important;
+    }}
+    
+    .css-1d391kg, .css-1lcbmhc {{
+        background-color: #DCDCDC !important;
+        color: {theme_vars['sidebar_text']} !important;
+    }}
+    
+    /* Selectbox styling */
+    .stSelectbox > div > div {{
+        min-width: 150px !important;
+    }}
+    
+    .stSelectbox > div > div > div {{
+        padding: 0.5rem 1rem !important;
     }}
     
     /* Sidebar content container */
@@ -335,10 +450,10 @@ def get_theme_css():
     }}
     
     .stTextInput > div > div > input:focus {{
-        border-color: #9ca3af !important;
-        box-shadow: 0 0 0 3px rgba(156, 163, 175, 0.2) !important;
-        outline: none !important;
-        background-color: {theme_vars['input_bg']} !important;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        outline: none;
+    }}
         color: {theme_vars['text_color']} !important;
     }}
     
@@ -1439,38 +1554,181 @@ def save_message_to_history(user_id, role, content):
         print(f"Error saving message: {e}")
         return False
 
+def detect_conversation_ending_response(user_input):
+    """Detect if user wants to end the conversation (saying no to ticket creation)"""
+    user_input_lower = user_input.lower().strip()
+    
+    # Check for negative responses
+    negative_responses = [
+        'no', 'nope', 'no thanks', 'no thank you', 'not now', 
+        'not needed', 'not required', 'i\'m good', 'im good',
+        'that\'s all', 'thats all', 'nothing else', 'no need',
+        'no ticket', 'don\'t need', 'dont need', 'sufficient',
+        'enough', 'that helps', 'thanks', 'thank you'
+    ]
+    
+    # Also check if the last bot message was asking about ticket creation
+    if len(st.session_state.chat_history) > 0:
+        last_bot_message = None
+        for msg in reversed(st.session_state.chat_history):
+            if msg.get('type') == 'bot':
+                last_bot_message = msg.get('content', '').lower()
+                break
+        
+        if last_bot_message and 'create a support ticket' in last_bot_message:
+            # If the bot asked about ticket creation and user gave a negative response
+            return any(response in user_input_lower for response in negative_responses)
+    
+    return False
+
+def generate_thank_you_message():
+    """Generate a thank you message to end the conversation gracefully"""
+    customer_info = st.session_state.customer_info or {}
+    org = customer_info.get('organization', 'your organization')
+    
+    return f"""
+🙏 **Thank you for using Nquiry!**
+
+I'm glad I could help you find the information you needed. If you have any other questions in the future, feel free to ask.
+
+Have a great day!
+    """.strip()
+
+def is_direct_ticket_request(query):
+    """Check if the user is directly requesting to create a ticket"""
+    query_lower = query.lower().strip()
+    ticket_keywords = [
+        'create a ticket', 'create ticket', 'make a ticket', 'make ticket',
+        'open a ticket', 'open ticket', 'submit a ticket', 'submit ticket',
+        'file a ticket', 'file ticket', 'raise a ticket', 'raise ticket',
+        'log a ticket', 'log ticket', 'create support ticket', 'ticket for'
+    ]
+    return any(keyword in query_lower for keyword in ticket_keywords)
+
+def extract_issue_from_ticket_request(query):
+    """Extract the actual issue from a ticket creation request"""
+    query_lower = query.lower().strip()
+    
+    # Common patterns to extract the issue
+    patterns = [
+        r'create.*?ticket.*?for\s+(.*)',
+        r'make.*?ticket.*?for\s+(.*)',
+        r'open.*?ticket.*?for\s+(.*)',
+        r'submit.*?ticket.*?for\s+(.*)',
+        r'file.*?ticket.*?for\s+(.*)',
+        r'raise.*?ticket.*?for\s+(.*)',
+        r'log.*?ticket.*?for\s+(.*)',
+        r'ticket.*?for\s+(.*)',
+        r'create.*?ticket.*?about\s+(.*)',
+        r'ticket.*?about\s+(.*)'
+    ]
+    
+    import re
+    for pattern in patterns:
+        match = re.search(pattern, query_lower)
+        if match:
+            issue = match.group(1).strip()
+            # Clean up the extracted issue
+            issue = issue.replace('the ', '').replace('my ', '').replace('our ', '')
+            return issue
+    
+    # If no pattern matches, return the original query
+    return query
+
+def generate_chat_transcript():
+    """Generate a formatted chat transcript for download"""
+    if not st.session_state.chat_history:
+        return ""
+    
+    from datetime import datetime
+    customer_info = st.session_state.customer_info or {}
+    
+    # Build the transcript
+    transcript_lines = []
+    transcript_lines.append("NQUIRY CHAT TRANSCRIPT")
+    transcript_lines.append("=" * 50)
+    transcript_lines.append("")
+    transcript_lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    transcript_lines.append(f"Customer: {customer_info.get('organization', 'Unknown')} ({customer_info.get('email', 'Unknown')})")
+    transcript_lines.append(f"Session Messages: {len(st.session_state.chat_history)}")
+    transcript_lines.append("")
+    transcript_lines.append("CONVERSATION LOG:")
+    transcript_lines.append("-" * 30)
+    transcript_lines.append("")
+    
+    # Add each message
+    for i, message in enumerate(st.session_state.chat_history, 1):
+        msg_type = message.get('type', 'unknown')
+        content = message.get('content', '')
+        timestamp = message.get('timestamp', '')
+        
+        if msg_type == 'user':
+            transcript_lines.append(f"[{timestamp}] 👤 USER:")
+            transcript_lines.append(f"    {content}")
+        elif msg_type == 'bot':
+            transcript_lines.append(f"[{timestamp}] 🤖 NQUIRY:")
+            # Clean content of markdown for plain text
+            import re
+            clean_content = re.sub(r'\*\*([^*]+)\*\*', r'\1', content)  # Remove bold
+            clean_content = re.sub(r'\*([^*]+)\*', r'\1', clean_content)  # Remove italic
+            clean_content = re.sub(r'#{1,6}\s?', '', clean_content)  # Remove headers
+            clean_content = re.sub(r'`([^`]+)`', r'\1', clean_content)  # Remove code formatting
+            
+            # Split long responses into multiple lines for readability
+            lines = clean_content.split('\n')
+            for line in lines:
+                if line.strip():
+                    transcript_lines.append(f"    {line.strip()}")
+        
+        transcript_lines.append("")  # Empty line between messages
+    
+    transcript_lines.append("=" * 50)
+    transcript_lines.append("End of Transcript")
+    transcript_lines.append("")
+    transcript_lines.append("Generated by Nquiry - Intelligent Query Processing System")
+    
+    return '\n'.join(transcript_lines)
+
+def generate_jira_ticket_id(category):
+    """Generate a JIRA-style ticket ID with product category prefix and random number"""
+    import random
+    
+    # Get product category prefix
+    if category:
+        # Use the category directly as prefix (NOC, COPS, MNHT, etc.)
+        prefix = category.upper().strip()
+    else:
+        prefix = 'SUP'  # Default support prefix
+    
+    # Generate random 5-digit number
+    random_number = random.randint(10000, 99999)
+    
+    return f"{prefix}-{random_number}"
+
 def display_header():
     """Display the main header with user info"""
     customer_info = st.session_state.customer_info or {}
     
-    # Create header with user info
-    col1, col2, col3 = st.columns([2, 3, 2])
-    
-    with col1:
-        # Organization and Role (top left) - removed to avoid duplication
-        pass
-    
-    with col2:
-        # Main title (center) - removed
-        pass
-    
-    with col3:
-        # User name dropdown (top right) with logout option
-        if customer_info:
+    # Simple user menu in top right if logged in
+    if customer_info:
+        col1, col2, col3 = st.columns([5, 2, 3])
+        
+        with col3:
             email = customer_info.get('email', 'Unknown')
             user_name = email.split('@')[0] if email != 'Unknown' else 'User'
             
-            # Create dropdown with username and logout option
+            # Create dropdown with username and logout option - make it wider
             user_action = st.selectbox(
                 "User Menu",
-                options=[f"👤 {user_name}", "Logout"],
+                options=[f"👤 {user_name}", "🚪 Logout"],
                 index=0,
                 key="user_dropdown",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                help=f"Logged in as: {email}"
             )
             
             # Handle logout action
-            if user_action == "Logout":
+            if user_action == "🚪 Logout":
                 # Clear all session state to logout user
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
@@ -1498,26 +1756,20 @@ def display_system_status():
     ">Nquiry</h1>
     """, unsafe_allow_html=True)
     
-    st.sidebar.markdown("### 👤 Customer Info")
-    
     if st.session_state.nquiry_processor:
         try:
             # Get system status from the processor
             processor = st.session_state.nquiry_processor
             customer_info = st.session_state.customer_info or {}
             
-            # Display customer info
+            # Display customer info - simplified format
             org = customer_info.get('organization', 'Unknown')
-            role = customer_info.get('role', 'Unknown')
-            email = customer_info.get('email', 'Unknown')
             
             st.sidebar.markdown(f"""
-            - 🏢 **Organization:** <span style="color: #333333; font-weight: 600;">{org}</span>
-            - 🎭 **Role:** <span style="color: #333333; font-weight: 600;">{role}</span>
+            **Customer:** {org}
             """, unsafe_allow_html=True)
             
             # Recent Chat History Dropdown
-            st.sidebar.markdown("### 💬 Recent Chat History")
             
             # Get user ID for chat history
             user_id = customer_info.get('email', 'demo_user') if customer_info else 'demo_user'
@@ -1589,19 +1841,9 @@ def display_system_status():
                     st.write("No past conversations found")
                     st.caption("Start a conversation to see history")
             
-            st.sidebar.markdown("<div style='margin: 0.3rem 0;'></div>", unsafe_allow_html=True)
-            
-            # Start New Conversation Button
-            if st.sidebar.button("🆕 Start New Conversation", use_container_width=True, type="primary"):
-                # Clear current chat history to start fresh
-                st.session_state.chat_history = []
-                st.success("✅ Started new conversation!")
-                st.rerun()
-            
-            st.sidebar.markdown("<div style='margin: 0.3rem 0;'></div>", unsafe_allow_html=True)
+            st.sidebar.markdown("<div style='margin: 0.1rem 0;'></div>", unsafe_allow_html=True)
             
             # Recent Tickets Dropdown
-            st.sidebar.markdown("### 🎫 Recent Tickets")
             
             # Get customer organization from session state
             customer_info = st.session_state.customer_info or {}
@@ -1652,6 +1894,32 @@ def display_system_status():
                 else:
                     st.write("Organization not identified or system not initialized")
                     st.caption("💡 Please ensure your customer email is properly configured")
+                
+            st.sidebar.markdown("<div style='margin: 0.5rem 0;'></div>", unsafe_allow_html=True)
+            
+            # Start New Conversation Button
+            if st.sidebar.button("🆕 Start New Conversation", use_container_width=True, type="primary"):
+                # Clear current chat history to start fresh
+                st.session_state.chat_history = []
+                st.session_state.conversation_ended = False  # Reset conversation ended flag
+                
+                # Clear all input field values
+                if 'query_input' in st.session_state:
+                    del st.session_state['query_input']
+                if 'follow_up_input' in st.session_state:
+                    del st.session_state['follow_up_input']
+                if 'last_processed_query' in st.session_state:
+                    del st.session_state['last_processed_query']
+                if 'last_followup_query' in st.session_state:
+                    del st.session_state['last_followup_query']
+                
+                # Force input field reset by changing keys
+                if 'input_key_counter' not in st.session_state:
+                    st.session_state.input_key_counter = 0
+                st.session_state.input_key_counter += 1
+                
+                st.success("✅ Started new conversation!")
+                st.rerun()
                 
         except Exception as e:
             st.sidebar.error(f"Info unavailable: {e}")
@@ -1787,6 +2055,14 @@ def display_chat_history():
 def process_query(query, processor, user_id):
     """Process user query and return response"""
     try:
+        # Check if this is a direct ticket creation request
+        if is_direct_ticket_request(query):
+            # Extract the actual issue from the ticket creation request
+            actual_issue = extract_issue_from_ticket_request(query)
+            st.session_state.show_ticket_form = True
+            st.session_state.ticket_query = actual_issue
+            return f"🎫 **Creating Support Ticket**\n\nI'll help you create a support ticket for: {actual_issue}\n\nPlease fill out the ticket form below to complete your support request."
+        
         with st.spinner("🔍 Processing your query..."):
             # Create a progress bar
             progress_bar = st.progress(0)
@@ -1802,13 +2078,21 @@ def process_query(query, processor, user_id):
             progress_bar.progress(75)
             time.sleep(0.5)
             
-            # Get chat history for context
-            history = []
-            if hasattr(processor, 'chat_history_manager'):
-                history = processor.chat_history_manager.get_history(user_id)
+            # Get chat history for context from session state
+            history = st.session_state.get('chat_history', [])
+            
+            # Convert session state format to the format expected by processor
+            formatted_history = []
+            for msg in history:
+                formatted_history.append({
+                    'role': 'user' if msg['type'] == 'user' else 'assistant',
+                    'content': msg['content'],
+                    'message': msg['content'],  # Fallback field name
+                    'type': msg['type']  # Keep original type field
+                })
             
             # Actually process the query, passing history for context
-            result = processor.process_query(user_id, query, history=history)
+            result = processor.process_query(user_id, query, history=formatted_history)
             
             progress_bar.progress(100)
             status_text.text("✅ Complete!")
@@ -1819,31 +2103,60 @@ def process_query(query, processor, user_id):
             status_text.empty()
             
             # Extract the actual response content from the result
+            response_text = ""
             if isinstance(result, dict):
                 # Check if ticket creation is ready
                 if result.get('ticket_creation_ready'):
                     # Trigger interactive ticket creation
                     st.session_state.show_ticket_form = True
                     st.session_state.ticket_query = result.get('original_query', query)
-                    return result.get('formatted_response', result.get('response', 'Ready to create ticket'))
+                    response_text = result.get('formatted_response', result.get('response', 'Ready to create ticket'))
                 # Check if ticket creation is completed
                 elif ('ticket_created' in result and result['ticket_created']):
-                    return f"🎫 **Ticket Created Successfully**\n\n{result['ticket_created']}"
+                    response_text = f"🎫 **Ticket Created Successfully**\n\n{result['ticket_created']}"
                 elif ('formatted_response' in result and result['formatted_response'] and 
                       "would you like me to create a support ticket" in result['formatted_response'].lower()):
                     # Trigger interactive ticket creation (fallback detection)
                     st.session_state.show_ticket_form = True
                     st.session_state.ticket_query = query
-                    return result['formatted_response']
+                    response_text = result['formatted_response']
                 elif 'response' in result and result['response']:
-                    return result['response']
+                    response_text = result['response']
                 elif 'formatted_response' in result and result['formatted_response']:
-                    return result['formatted_response']
+                    response_text = result['formatted_response']
                 else:
-                    return "❌ Sorry, I couldn't find a relevant response to your query."
+                    response_text = "❌ Sorry, I couldn't find a relevant response to your query."
             else:
                 # If result is a string, return as-is
-                return result if result else "❌ Sorry, I couldn't process your query."
+                response_text = result if result else "❌ Sorry, I couldn't process your query."
+            
+            # Audio feedback if enabled
+            if VOICE_AVAILABLE and st.session_state.get('audio_enabled', False):
+                try:
+                    # Clean the response for speech (remove markdown and emojis)
+                    clean_text = response_text
+                    # Remove markdown formatting
+                    import re
+                    clean_text = re.sub(r'\*\*([^*]+)\*\*', r'\1', clean_text)  # Bold
+                    clean_text = re.sub(r'\*([^*]+)\*', r'\1', clean_text)      # Italic
+                    clean_text = re.sub(r'#{1,6}\s?', '', clean_text)           # Headers
+                    clean_text = re.sub(r'`([^`]+)`', r'\1', clean_text)        # Code
+                    clean_text = re.sub(r'[🎯🏷️👤✅📂📄❌🎫🔊🔤🎤💡🔍]', '', clean_text)  # Emojis
+                    
+                    # Limit speech to first 200 characters for better experience
+                    if len(clean_text) > 200:
+                        clean_text = clean_text[:200] + "... Response truncated for audio."
+                    
+                    # Play audio in background thread to avoid blocking UI
+                    import threading
+                    audio_thread = threading.Thread(target=speak_response, args=(clean_text,))
+                    audio_thread.daemon = True
+                    audio_thread.start()
+                    
+                except Exception as audio_error:
+                    st.warning(f"Audio playback failed: {audio_error}")
+            
+            return response_text
             
     except Exception as e:
         st.error(f"Error processing query: {e}")
@@ -1938,9 +2251,14 @@ def display_ticket_creation_form():
                 # Create the ticket
                 result = ticket_creator.create_ticket_streamlit(st.session_state.ticket_query, customer_email, ticket_data)
                 
+                # Generate JIRA-style ticket ID first
+                category = result.get('category', '')
+                jira_ticket_id = generate_jira_ticket_id(category)
+                
                 # Display success message
                 st.success("🎫 **Ticket Created Successfully!**")
                 st.markdown(f"**Ticket ID:** {result.get('ticket_id', 'N/A')}")
+                st.markdown(f"**JIRA Ticket:** {jira_ticket_id}")
                 st.markdown(f"**Category:** {result.get('category', 'N/A')}")
                 st.markdown(f"**Customer:** {result.get('customer', 'N/A')}")
                 
@@ -1950,6 +2268,7 @@ def display_ticket_creation_form():
                 ticket_document.append("========================")
                 ticket_document.append("")
                 ticket_document.append(f"Ticket ID: {result.get('ticket_id', 'N/A')}")
+                ticket_document.append(f"JIRA Ticket: {jira_ticket_id}")
                 ticket_document.append(f"Category: {result.get('category', 'N/A')}")
                 ticket_document.append(f"Customer: {result.get('customer', 'N/A')}")
                 ticket_document.append(f"Created: {result.get('created_date', 'N/A')}")
@@ -1975,8 +2294,16 @@ def display_ticket_creation_form():
                 st.session_state.ticket_content = ticket_content
                 st.session_state.ticket_filename = f"{result.get('ticket_id', 'ticket')}.txt"
                 
-                # Simple success message for chat
-                ticket_response = f"🎫 **Ticket Created Successfully!**\n\n**Ticket ID:** {result.get('ticket_id', 'N/A')}\n**Category:** {result.get('category', 'N/A')}\n**Customer:** {result.get('customer', 'N/A')}\n\n✅ Your support ticket has been created and will be processed by our support team.\n📄 Complete ticket details have been generated."
+                # Enhanced success message with both ticket IDs (using already generated jira_ticket_id)
+                ticket_response = f"""🎫 **Ticket Created Successfully!**
+
+**Ticket ID:** {result.get('ticket_id', 'N/A')}
+**JIRA Ticket:** {jira_ticket_id}
+**Category:** {result.get('category', 'N/A')}
+**Customer:** {result.get('customer', 'N/A')}
+
+✅ Your support ticket has been created and will be processed by our support team.
+📄 Complete ticket details have been generated."""
                 
                 timestamp = datetime.now().strftime("%H:%M")
                 st.session_state.chat_history.append({
@@ -2026,7 +2353,49 @@ def main():
     initialize_session_state()
     display_header()
     
-    # Force sidebar to be visible
+    # Force sidebar to be visible with JavaScript
+    st.markdown("""
+    <script>
+    setTimeout(function() {
+        // Find sidebar and force it to be visible
+        var sidebar = document.querySelector('section[data-testid="stSidebar"]');
+        if (sidebar) {
+            sidebar.style.display = 'block';
+            sidebar.style.visibility = 'visible';
+            sidebar.style.transform = 'translateX(0px)';
+            sidebar.style.left = '0px';
+            sidebar.style.width = '280px';
+            sidebar.style.minWidth = '280px';
+            sidebar.style.position = 'relative';
+            sidebar.style.backgroundColor = '#DCDCDC';
+            sidebar.style.zIndex = '999999';
+            sidebar.setAttribute('aria-expanded', 'true');
+        }
+        
+        // Hide any collapse buttons
+        var collapseButtons = document.querySelectorAll('button[data-testid="collapsedControl"], .css-1dp5vir, button[aria-label*="collapse"]');
+        collapseButtons.forEach(function(btn) {
+            btn.style.display = 'none';
+        });
+        
+        // Force main content to leave space
+        var mainContent = document.querySelector('.main .block-container');
+        if (mainContent) {
+            mainContent.style.marginLeft = '300px';
+        }
+    }, 100);
+    
+    // Run again after 1 second to ensure it sticks
+    setTimeout(function() {
+        var sidebar = document.querySelector('section[data-testid="stSidebar"]');
+        if (sidebar) {
+            sidebar.style.display = 'block';
+            sidebar.style.visibility = 'visible';
+            sidebar.style.transform = 'translateX(0px)';
+        }
+    }, 1000);
+    </script>
+    """, unsafe_allow_html=True)
     
     # Sidebar
     display_system_status()
@@ -2048,7 +2417,7 @@ def main():
         if customer_email and customer_email.strip():
             # Check if this is a new email (to avoid re-initializing on every rerun)
             if "last_customer_email" not in st.session_state or st.session_state.last_customer_email != customer_email:
-                with st.spinner("Initializing nQuiry with your credentials..."):
+                with st.spinner("Initializing Nquiry with your credentials..."):
                     processor = create_nquiry_processor(customer_email)
                     if processor:
                         st.session_state.nquiry_processor = processor
@@ -2119,14 +2488,55 @@ def main():
         "How to configure MFA settings?"
     ]
     
-    # Create a single input field that's always visible
-    query = st.text_input(
-        "Search Query",
-        placeholder="Ask anything or @mention a Space",
-        key="search_input",
-        label_visibility="collapsed",
-        help="Type your question here"
-    )
+    # Audio feedback settings in top right
+    col_spacer, col_audio = st.columns([4, 1])
+    with col_audio:
+        if VOICE_AVAILABLE:
+            audio_enabled = st.checkbox("🔊 Audio", key="audio_enabled", help="Enable text-to-speech for bot responses")
+    
+    # Main input with microphone button
+    col_input, col_mic = st.columns([9, 1])
+    
+    query = ""
+    
+    with col_input:
+        # Initialize key counter if not exists
+        if 'input_key_counter' not in st.session_state:
+            st.session_state.input_key_counter = 0
+            
+        # Text input field with dynamic key
+        query = st.text_input(
+            "Search Query",
+            placeholder="Ask anything or @mention a Space",
+            key=f"search_input_{st.session_state.input_key_counter}",
+            label_visibility="collapsed",
+            help="Type your question here"
+        )
+    
+    with col_mic:
+        # Microphone button - always visible when voice is available
+        if VOICE_AVAILABLE:
+            if st.button("🎤", key="mic_button", help="Click to use voice input"):
+                # Trigger voice recording
+                st.session_state.use_voice = True
+                st.rerun()
+    
+    # Handle voice input when microphone is clicked
+    if VOICE_AVAILABLE and st.session_state.get('use_voice', False):
+        # Reset voice flag
+        st.session_state.use_voice = False
+        
+        # Show voice recording interface
+        voice_query = create_voice_input_component()
+        if voice_query:
+            query = voice_query
+    
+    elif not VOICE_AVAILABLE:
+        # Show fallback message when voice is not available but user tries to use mic
+        if st.session_state.get('use_voice', False):
+            st.error("❌ Voice input is not available. Please install required dependencies.")
+            st.code("pip install speechrecognition pyaudio pyttsx3")
+            st.session_state.use_voice = False
     
     # Show example queries only when input is empty (regardless of chat history)
     if not query or query.strip() == "":
@@ -2160,6 +2570,9 @@ def main():
                         if 'sidebar_refresh_trigger' not in st.session_state:
                             st.session_state.sidebar_refresh_trigger = 0
                         st.session_state.sidebar_refresh_trigger += 1
+                        
+                        # Increment input key counter to clear input fields
+                        st.session_state.input_key_counter += 1
                     
                     st.rerun()
     
@@ -2185,7 +2598,15 @@ def main():
             })
             
             if st.session_state.nquiry_processor and st.session_state.nquiry_processor != "placeholder":
-                response = process_query(query.strip(), st.session_state.nquiry_processor, user_id)
+                
+                # Check if this is a "no" response to ticket creation
+                if detect_conversation_ending_response(query.strip()):
+                    # End conversation gracefully
+                    response = generate_thank_you_message()
+                    st.session_state.conversation_ended = True
+                else:
+                    response = process_query(query.strip(), st.session_state.nquiry_processor, user_id)
+                
                 bot_timestamp = datetime.now().strftime("%H:%M")
                 st.session_state.chat_history.append({
                     'type': 'bot',
@@ -2197,6 +2618,9 @@ def main():
                 if 'sidebar_refresh_trigger' not in st.session_state:
                     st.session_state.sidebar_refresh_trigger = 0
                 st.session_state.sidebar_refresh_trigger += 1
+                
+                # Increment input key counter to clear input fields
+                st.session_state.input_key_counter += 1
             
             # Clear processing flag and rerun to clear input
             st.session_state.processing_query = False
@@ -2208,20 +2632,89 @@ def main():
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Display chat history
+    # Display chat history first
     display_chat_history()
     
-    # Always show an input field for follow-up questions after chat history
-    if len(st.session_state.chat_history) > 0:
-        st.markdown('<div style="margin-top: 1rem;"></div>', unsafe_allow_html=True)
+    # Display ticket creation form immediately after chat history if needed
+    display_ticket_creation_form()
+    
+    # Show download button for completed tickets after ticket form
+    if hasattr(st.session_state, 'ticket_content') and st.session_state.ticket_content:
+        st.markdown("---")
+        st.markdown("### 📄 Downloads")
         
-        follow_up_query = st.text_input(
-            "Follow-up Question",
-            placeholder="Ask another question...",
-            key="follow_up_input",
-            label_visibility="collapsed",
-            help="Type your follow-up question here"
-        )
+        col1, col2, col3 = st.columns([3, 3, 1])
+        with col1:
+            st.download_button(
+                label="📄 Download Ticket Details",
+                data=st.session_state.ticket_content,
+                file_name=st.session_state.ticket_filename,
+                mime='text/plain',
+                use_container_width=True,
+                key="download_ticket_main"
+            )
+        with col2:
+            # Generate chat transcript (only available with ticket)
+            chat_transcript = generate_chat_transcript()
+            if chat_transcript:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                customer_info = st.session_state.customer_info or {}
+                org = customer_info.get('organization', 'User')
+                chat_filename = f"chat_transcript_{org}_{timestamp}.txt"
+                
+                st.download_button(
+                    label="💬 Download Chat Transcript",
+                    data=chat_transcript,
+                    file_name=chat_filename,
+                    mime='text/plain',
+                    use_container_width=True,
+                    key="download_chat_main"
+                )
+        with col3:
+            if st.button("✅ Clear", use_container_width=True, key="clear_downloads_main"):
+                st.session_state.ticket_content = None
+                st.session_state.ticket_filename = None
+                st.rerun()
+    
+    # Show follow-up input at the very bottom (after all other content)
+    if len(st.session_state.chat_history) > 0 and not st.session_state.get('conversation_ended', False):
+        st.markdown('<div style="margin-top: 2rem; border-top: 1px solid #e0e0e0; padding-top: 1rem;"></div>', unsafe_allow_html=True)
+        
+        # Follow-up input with microphone button
+        col_followup, col_followup_mic = st.columns([10, 1])
+        
+        with col_followup:
+            # Initialize key counter if not exists
+            if 'input_key_counter' not in st.session_state:
+                st.session_state.input_key_counter = 0
+                
+            follow_up_query = st.text_input(
+                "Follow-up Question",
+                placeholder="Ask another question...",
+                key=f"follow_up_input_{st.session_state.input_key_counter}",
+                label_visibility="collapsed",
+                help="Type your follow-up question here"
+            )
+        
+        with col_followup_mic:
+            # Add spacing to align with input field
+            st.markdown("<div style='padding-top: 8px;'></div>", unsafe_allow_html=True)
+            # Microphone button for follow-up
+            if VOICE_AVAILABLE:
+                if st.button("🎤", key="followup_mic_button", help="Click to use voice input", use_container_width=True):
+                    # Trigger voice recording for follow-up
+                    st.session_state.use_followup_voice = True
+                    st.rerun()
+        
+        # Handle voice input for follow-up when microphone is clicked
+        if VOICE_AVAILABLE and st.session_state.get('use_followup_voice', False):
+            # Reset voice flag
+            st.session_state.use_followup_voice = False
+            
+            # Show voice recording interface
+            followup_voice_query = create_voice_input_component()
+            if followup_voice_query:
+                follow_up_query = followup_voice_query
         
         # Handle follow-up query submission
         if follow_up_query and follow_up_query.strip():
@@ -2243,7 +2736,15 @@ def main():
                 })
                 
                 if st.session_state.nquiry_processor and st.session_state.nquiry_processor != "placeholder":
-                    response = process_query(follow_up_query.strip(), st.session_state.nquiry_processor, user_id)
+                    
+                    # Check if this is a "no" response to ticket creation
+                    if detect_conversation_ending_response(follow_up_query.strip()):
+                        # End conversation gracefully
+                        response = generate_thank_you_message()
+                        st.session_state.conversation_ended = True
+                    else:
+                        response = process_query(follow_up_query.strip(), st.session_state.nquiry_processor, user_id)
+                    
                     bot_timestamp = datetime.now().strftime("%H:%M")
                     st.session_state.chat_history.append({
                         'type': 'bot',
@@ -2255,49 +2756,16 @@ def main():
                     if 'sidebar_refresh_trigger' not in st.session_state:
                         st.session_state.sidebar_refresh_trigger = 0
                     st.session_state.sidebar_refresh_trigger += 1
+                    
+                    # Increment input key counter to clear input fields
+                    st.session_state.input_key_counter += 1
                 
                 st.rerun()
     
-    # Display ticket creation form if needed
-    display_ticket_creation_form()
-    
-    # Show download button for completed tickets
-    if hasattr(st.session_state, 'ticket_content') and st.session_state.ticket_content:
-        st.markdown("---")
-        st.markdown("### 📄 Ticket Documentation")
-        
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.download_button(
-                label="📄 Download Complete Ticket Details",
-                data=st.session_state.ticket_content,
-                file_name=st.session_state.ticket_filename,
-                mime='text/plain',
-                use_container_width=True,
-                key="download_ticket_main"
-            )
-        with col2:
-            if st.button("✅ Clear", use_container_width=True, key="clear_ticket_main"):
-                st.session_state.ticket_content = None
-                st.session_state.ticket_filename = None
-                st.rerun()
-    
-    # Clear chat button in sidebar
-    if st.sidebar.button("🗑️ Clear Chat", use_container_width=True):
-        # Clear both session state and MongoDB history
-        user_id = st.session_state.customer_info.get('email', 'demo_user') if st.session_state.customer_info else 'demo_user'
-        
-        # Clear MongoDB history
-        if st.session_state.chat_manager:
-            try:
-                st.session_state.chat_manager.clear_history(user_id)
-            except Exception as e:
-                print(f"Error clearing MongoDB history: {e}")
-        
-        # Clear session state
-        st.session_state.chat_history = []
-        st.session_state.history_loaded = False
-        st.rerun()
+    # Show conversation ended message if applicable
+    elif len(st.session_state.chat_history) > 0 and st.session_state.get('conversation_ended', False):
+        st.markdown('<div style="margin-top: 2rem; border-top: 1px solid #e0e0e0; padding-top: 1rem;"></div>', unsafe_allow_html=True)
+        st.info("💬 This conversation has ended. Use the sidebar to start a new conversation if you have more questions!")
 
 if __name__ == "__main__":
     main()

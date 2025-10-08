@@ -365,7 +365,7 @@ Would you like to:
 3. Create a support ticket for assistance
 """
     
-    def format_multi_source_results(self, query: str, all_results: Dict[str, List[Tuple[Dict, float]]]) -> str:
+    def format_multi_source_results(self, query: str, all_results: Dict[str, List[Tuple[Dict, float]]], context: str = "") -> str:
         """
         Format results from multiple sources
         
@@ -393,7 +393,7 @@ Would you like to:
         
         for source, results in sorted_sources:
             if results:
-                source_response = self.format_search_results(query, results, source)
+                source_response = self.format_search_results(query, results, source, context)
                 response_parts.append(f"📂 {source} Results:")
                 response_parts.append(source_response)
                 response_parts.append("="*60)

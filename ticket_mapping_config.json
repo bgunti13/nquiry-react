@@ -70,11 +70,15 @@
     },
     "CSP": {
       "keywords": [
-        "grant access",
-        "revoke access",
-        "access management",
-        "permissions",
-        "user access"
+        "grant jira access",
+        "revoke jira access", 
+        "provide jira access",
+        "remove jira access",
+        "jira access",
+        "jira permission",
+        "jira user access",
+        "access to jira",
+        "jira account access"
       ],
       "required_fields": {
         "description": "Description of the access request"

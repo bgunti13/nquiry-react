@@ -1,3 +1,14 @@
 # Ignore temporary Excel files
 ~$LS-HT Customer Info.xlsx
 .env
+ticket_simulation_output
+
+# Voice input temporary files
+*.wav
+*.mp3
+*.flac
+temp_audio_*
+voice_temp_*
+
+# Audio cache
+audio_cache/ 
