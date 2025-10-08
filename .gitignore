@@ -12,3 +12,4 @@ voice_temp_*
 
 # Audio cache
 audio_cache/ 
+vector_store/
