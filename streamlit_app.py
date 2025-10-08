@@ -106,7 +106,7 @@ def get_theme_css():
         width: 280px !important;
         min-width: 280px !important;
         max-width: 280px !important;
-        background-color: #DCDCDC !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
         z-index: 999999 !important;
     }}
     
@@ -114,13 +114,13 @@ def get_theme_css():
     .css-1d391kg {{
         display: block !important;
         visibility: visible !important;
-        background-color: #DCDCDC !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
     }}
     
     .css-1lcbmhc {{
         display: block !important;
         visibility: visible !important;
-        background-color: #DCDCDC !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
     }}
     
     /* Hide ALL possible collapse controls */
@@ -151,41 +151,41 @@ def get_theme_css():
         transform: translateX(0px) !important;
         left: 0px !important;
         width: 280px !important;
-        background-color: #DCDCDC !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
     }}
     
     /* Sidebar content styling */
     section[data-testid="stSidebar"] > div:first-child {{
-        background-color: #DCDCDC !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
         display: block !important;
         visibility: visible !important;
     }}
     
     /* Target all sidebar elements */
     section[data-testid="stSidebar"] * {{
-        background-color: #DCDCDC !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
     }}
     
     /* Specifically target sidebar containers and boxes */
     section[data-testid="stSidebar"] .element-container {{
-        background-color: #DCDCDC !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
     }}
     
     section[data-testid="stSidebar"] .stMarkdown {{
-        background-color: #DCDCDC !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
     }}
     
     section[data-testid="stSidebar"] .stExpander {{
-        background-color: #DCDCDC !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
         border: none !important;
     }}
     
     section[data-testid="stSidebar"] .stExpander > div {{
-        background-color: #DCDCDC !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
     }}
     
     section[data-testid="stSidebar"] .stButton {{
-        background-color: #DCDCDC !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
     }}
     
     section[data-testid="stSidebar"] .stButton > button {{
@@ -212,7 +212,7 @@ def get_theme_css():
     
     /* Remove any white backgrounds from text containers */
     section[data-testid="stSidebar"] [data-testid] {{
-        background-color: #DCDCDC !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
     }}
     
     section[data-testid="stSidebar"] [data-testid] * {{
@@ -220,7 +220,7 @@ def get_theme_css():
     }}
     
     .css-1d391kg, .css-1lcbmhc {{
-        background-color: #DCDCDC !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
         color: {theme_vars['sidebar_text']} !important;
     }}
     
@@ -799,6 +799,55 @@ def get_theme_css():
     /* Make sidebar content ultra-tight */
     section[data-testid="stSidebar"] [data-testid="element-container"] {{
         margin: 0.05rem 0 !important;
+    }}
+    
+    /* User dropdown at bottom of sidebar styling */
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"]:last-of-type {{
+        position: sticky !important;
+        bottom: 0 !important;
+        background-color: {theme_vars['sidebar_bg']} !important;
+        padding: 0.5rem 0 !important;
+        border-top: 1px solid {theme_vars['border_color']} !important;
+        margin-top: auto !important;
+    }}
+    
+    /* Fix the white container around user dropdown */
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"]:last-of-type > div,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"]:last-of-type > div > div,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"]:last-of-type div[data-baseweb="select"],
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"]:last-of-type .stSelectbox,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"]:last-of-type [data-testid="stSelectbox"] {{
+        background-color: {theme_vars['sidebar_bg']} !important;
+        background: {theme_vars['sidebar_bg']} !important;
+    }}
+    
+    /* More aggressive targeting for all selectbox containers in sidebar */
+    section[data-testid="stSidebar"] .stSelectbox,
+    section[data-testid="stSidebar"] .stSelectbox > div,
+    section[data-testid="stSidebar"] .stSelectbox > div > div,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"],
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"] > div,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div {{
+        background-color: {theme_vars['sidebar_bg']} !important;
+        background: {theme_vars['sidebar_bg']} !important;
+    }}
+    
+    /* Style the user dropdown button specifically */
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"]:last-of-type button {{
+        background: linear-gradient(135deg, {theme_vars['primary_color']} 0%, {theme_vars['secondary_color']} 100%) !important;
+        color: white !important;
+        border: 1px solid {theme_vars['border_color']} !important;
+        border-radius: 8px !important;
+        font-weight: 500 !important;
+        padding: 0.5rem 1rem !important;
+        width: 100% !important;
+    }}
+    
+    /* Hover state for user dropdown */
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"]:last-of-type button:hover {{
+        background: linear-gradient(135deg, {theme_vars['secondary_color']} 0%, {theme_vars['primary_color']} 100%) !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 8px rgba(37, 99, 235, 0.3) !important;
     }}
 </style>
 """
@@ -1707,37 +1756,107 @@ def generate_jira_ticket_id(category):
 
 def display_header():
     """Display the main header with user info"""
-    customer_info = st.session_state.customer_info or {}
-    
-    # Simple user menu in top right if logged in
-    if customer_info:
-        col1, col2, col3 = st.columns([5, 2, 3])
+    # Header is now simplified - user menu moved to sidebar
+    pass
+
+def display_learning_status():
+    """Display continuous learning status in sidebar"""
+    try:
+        # Initialize learning manager if needed
+        if not hasattr(st.session_state, 'learning_manager'):
+            st.session_state.learning_manager = ContinuousLearningManager()
         
-        with col3:
-            email = customer_info.get('email', 'Unknown')
-            user_name = email.split('@')[0] if email != 'Unknown' else 'User'
+        # Get learning status
+        learning_status = st.session_state.learning_manager.get_learning_status()
+        
+        # Get analytics
+        analytics = st.session_state.get('learning_analytics', {
+            'total_feedback': 0,
+            'learning_score': 0.0,
+            'positive_feedback': 0,
+            'excellent_feedback': 0
+        })
+        
+        # Display learning section in sidebar
+        with st.sidebar.expander("🧠 Continuous Learning", expanded=False):
+            # Learning status indicator
+            status = learning_status['status']
+            score = learning_status.get('score', 0)
             
-            # Create dropdown with username and logout option - make it wider
-            user_action = st.selectbox(
-                "User Menu",
-                options=[f"👤 {user_name}", "🚪 Logout"],
-                index=0,
-                key="user_dropdown",
-                label_visibility="collapsed",
-                help=f"Logged in as: {email}"
-            )
+            # Status icon and color
+            if status == 'excellent':
+                status_icon = "🌟"
+                status_color = "#10b981"
+            elif status == 'good':
+                status_icon = "✅"
+                status_color = "#059669"
+            elif status == 'improving':
+                status_icon = "📈"
+                status_color = "#f59e0b"
+            elif status == 'learning':
+                status_icon = "🔄"
+                status_color = "#3b82f6"
+            else:
+                status_icon = "🚀"
+                status_color = "#6366f1"
             
-            # Handle logout action
-            if user_action == "🚪 Logout":
-                # Clear all session state to logout user
-                for key in list(st.session_state.keys()):
-                    del st.session_state[key]
+            # Display status
+            st.markdown(f"""
+            <div style="text-align: center; padding: 0.5rem;">
+                <div style="font-size: 2rem;">{status_icon}</div>
+                <div style="font-weight: bold; color: {status_color};">{status.title()}</div>
+                <div style="font-size: 0.9rem; opacity: 0.8;">Learning Score: {score:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Learning metrics
+            total_feedback = analytics['total_feedback']
+            positive_feedback = analytics['positive_feedback'] + analytics['excellent_feedback']
+            
+            if total_feedback > 0:
+                st.markdown("**📊 Learning Metrics:**")
+                st.metric("Total Feedback", total_feedback)
+                st.metric("Positive Responses", f"{positive_feedback}/{total_feedback}")
                 
-                # Reinitialize session state
-                initialize_session_state()
+                # Progress bar for learning score
+                progress_color = status_color
+                st.markdown(f"""
+                <div style="margin: 0.5rem 0;">
+                    <div style="font-size: 0.8rem; margin-bottom: 0.2rem;">Learning Progress</div>
+                    <div style="background-color: #e5e7eb; border-radius: 10px; height: 8px;">
+                        <div style="background-color: {progress_color}; width: {score}%; height: 8px; border-radius: 10px;"></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
                 
-                # Force rerun to show login page
-                st.rerun()
+                # Recent improvements
+                improvements = learning_status.get('improvements', {})
+                if improvements:
+                    st.markdown("**🎯 Current Focus:**")
+                    suggestion = improvements.get('suggestion', 'Analyzing patterns...')
+                    priority = improvements.get('priority', 'medium')
+                    
+                    priority_color = {"high": "#ef4444", "medium": "#f59e0b", "low": "#10b981"}.get(priority, "#6366f1")
+                    st.markdown(f"""
+                    <div style="padding: 0.5rem; background-color: rgba(59, 130, 246, 0.1); border-radius: 6px; border-left: 3px solid {priority_color};">
+                        <div style="font-size: 0.85rem;">{suggestion}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.markdown("**🔄 Ready to Learn**")
+                st.caption("System is ready to learn from your feedback!")
+                
+                # Learning features info
+                st.markdown("""
+                **Learning Features:**
+                - 👍👎 Response feedback
+                - ⭐ Quality ratings  
+                - 🔄 Improvement tracking
+                - 📈 Performance analytics
+                """)
+    
+    except Exception as e:
+        st.sidebar.error(f"Learning status unavailable: {e}")
 
 def display_system_status():
     """Display system status in sidebar"""
@@ -1925,6 +2044,40 @@ def display_system_status():
             st.sidebar.error(f"Info unavailable: {e}")
     else:
         st.sidebar.info("Please initialize system first")
+    
+    # Continuous Learning Status Indicator - Disabled
+    # display_learning_status()
+    
+    # User dropdown at bottom of sidebar - always visible when customer info is available
+    customer_info = st.session_state.customer_info or {}
+    if customer_info:
+        # Add spacing before user menu
+        st.sidebar.markdown("<div style='margin: 2rem 0 1rem 0; border-top: 1px solid #e5e7eb; padding-top: 1rem;'></div>", unsafe_allow_html=True)
+        
+        email = customer_info.get('email', 'Unknown')
+        user_name = email.split('@')[0] if email != 'Unknown' else 'User'
+        
+        # Create dropdown with username and logout option
+        user_action = st.sidebar.selectbox(
+            "User Menu",
+            options=[f"👤 {user_name}", "🚪 Logout"],
+            index=0,
+            key="sidebar_user_dropdown",
+            label_visibility="collapsed",
+            help=f"Logged in as: {email}"
+        )
+        
+        # Handle logout action
+        if user_action == "🚪 Logout":
+            # Clear all session state to logout user
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            
+            # Reinitialize session state
+            initialize_session_state()
+            
+            # Force rerun to show login page
+            st.rerun()
 
 def initialize_nquiry():
     """Initialize Nquiry processor"""
@@ -1967,6 +2120,503 @@ def create_nquiry_processor(customer_email):
     except Exception as e:
         st.error(f"Failed to create processor: {e}")
         return None
+
+def collect_feedback(user_id, response_content, feedback_type, feedback_category):
+    """Collect user feedback for continuous learning"""
+    try:
+        from datetime import datetime
+        
+        # Log feedback collection start
+        print(f"🎯 Collecting feedback from user: {user_id}")
+        print(f"   - Feedback type: {feedback_type}")
+        print(f"   - Category: {feedback_category}")
+        print(f"   - Response preview: {response_content[:100]}...")
+        
+        # Get or create learning manager
+        if not hasattr(st.session_state, 'learning_manager'):
+            st.session_state.learning_manager = ContinuousLearningManager()
+        
+        # Store feedback data
+        feedback_data = {
+            'user_id': user_id,
+            'response_content': response_content[:500],  # Truncate for storage
+            'feedback_type': feedback_type,  # positive, negative, excellent, needs_improvement
+            'feedback_category': feedback_category,  # thumbs_up, thumbs_down, star, improve
+            'timestamp': datetime.now(),
+            'session_id': st.session_state.get('session_id', 'unknown')
+        }
+        
+        # Store in learning manager
+        st.session_state.learning_manager.add_feedback(feedback_data)
+        print("📊 Feedback added to learning manager")
+        
+        # Store in MongoDB for persistence
+        mongodb_success = store_feedback_in_mongodb(feedback_data)
+        if mongodb_success:
+            print("💾 Feedback successfully persisted to MongoDB")
+        else:
+            print("⚠️ Failed to persist feedback to MongoDB (will retry later)")
+        
+        # Update learning analytics
+        update_learning_analytics(feedback_type, feedback_category)
+        print("📈 Learning analytics updated")
+        
+        print("✅ Feedback collection completed successfully")
+        return True
+    except Exception as e:
+        print(f"❌ Error collecting feedback: {e}")
+        return False
+
+def get_chat_manager():
+    """Safely get chat manager with proper error handling"""
+    try:
+        if hasattr(st.session_state, 'nquiry_processor') and st.session_state.nquiry_processor and st.session_state.nquiry_processor != "placeholder":
+            chat_manager = st.session_state.nquiry_processor.chat_history_manager
+        else:
+            # Fallback to session state chat manager
+            if not hasattr(st.session_state, 'chat_manager') or st.session_state.chat_manager is None:
+                st.session_state.chat_manager = ChatHistoryManager()
+            chat_manager = st.session_state.chat_manager
+        
+        return chat_manager
+    except Exception as e:
+        print(f"Error getting chat manager: {e}")
+        return None
+
+def store_feedback_in_mongodb(feedback_data):
+    """Store feedback data in MongoDB for persistence"""
+    try:
+        # Log feedback collection attempt
+        print(f"📝 Attempting to store feedback: {feedback_data['feedback_type']} for user {feedback_data['user_id']}")
+        
+        # Use the safer chat manager getter
+        chat_manager = get_chat_manager()
+        
+        # Store feedback in a separate collection
+        if chat_manager is not None and hasattr(chat_manager, 'db') and chat_manager.db is not None:
+            feedback_collection = chat_manager.db['user_feedback']
+            
+            # Prepare feedback document
+            feedback_doc = {
+                'user_id': feedback_data['user_id'],
+                'response_content': feedback_data['response_content'],
+                'feedback_type': feedback_data['feedback_type'],
+                'feedback_category': feedback_data['feedback_category'],
+                'timestamp': feedback_data['timestamp'],
+                'session_id': feedback_data['session_id']
+            }
+            
+            # Insert feedback
+            result = feedback_collection.insert_one(feedback_doc)
+            
+            # Log successful storage
+            print(f"✅ Feedback successfully stored in MongoDB with ID: {result.inserted_id}")
+            print(f"   - User: {feedback_data['user_id']}")
+            print(f"   - Type: {feedback_data['feedback_type']}")
+            print(f"   - Category: {feedback_data['feedback_category']}")
+            print(f"   - Timestamp: {feedback_data['timestamp']}")
+            
+            return True
+        else:
+            print("❌ MongoDB database connection not available for feedback storage")
+            return False
+        
+    except Exception as e:
+        print(f"❌ Error storing feedback in MongoDB: {e}")
+        print(f"   - Feedback data: {feedback_data}")
+        return False
+
+def update_learning_analytics(feedback_type, feedback_category):
+    """Update learning analytics based on user feedback"""
+    try:
+        # Initialize analytics if not exists
+        if 'learning_analytics' not in st.session_state:
+            st.session_state.learning_analytics = {
+                'total_feedback': 0,
+                'positive_feedback': 0,
+                'negative_feedback': 0,
+                'excellent_feedback': 0,
+                'improvement_feedback': 0,
+                'feedback_trends': [],
+                'learning_score': 0.0
+            }
+        
+        # Update counters
+        analytics = st.session_state.learning_analytics
+        analytics['total_feedback'] += 1
+        
+        if feedback_type == 'positive':
+            analytics['positive_feedback'] += 1
+        elif feedback_type == 'negative':
+            analytics['negative_feedback'] += 1
+        elif feedback_type == 'excellent':
+            analytics['excellent_feedback'] += 1
+        elif feedback_type == 'needs_improvement':
+            analytics['improvement_feedback'] += 1
+        
+        # Calculate learning score (0-100)
+        total = analytics['total_feedback']
+        if total > 0:
+            positive_score = (analytics['positive_feedback'] + analytics['excellent_feedback'] * 1.5) / total
+            analytics['learning_score'] = min(100, positive_score * 100)
+        
+        # Add to trends (keep last 10)
+        analytics['feedback_trends'].append({
+            'type': feedback_type,
+            'timestamp': datetime.now().strftime("%H:%M"),
+            'score': analytics['learning_score']
+        })
+        if len(analytics['feedback_trends']) > 10:
+            analytics['feedback_trends'].pop(0)
+            
+    except Exception as e:
+        print(f"Error updating learning analytics: {e}")
+
+class ContinuousLearningManager:
+    """Manages continuous learning from user feedback"""
+    
+    def __init__(self):
+        self.feedback_history = []
+        self.learning_patterns = {}
+        self.response_improvements = {}
+        self.response_templates = {}  # Store successful response patterns
+        self.improvement_strategies = {}  # Active improvement strategies
+        self._load_historical_feedback()
+        self._initialize_learning_strategies()
+    
+    def _initialize_learning_strategies(self):
+        """Initialize learning strategies and LLM enhancement methods"""
+        self.improvement_strategies = {
+            'high_priority': {
+                'action': 'immediate_attention',
+                'response_modifier': self._enhance_response_accuracy,
+                'examples_needed': True,
+                'detail_level': 'comprehensive',
+                'llm_prompt_modifier': self._get_accuracy_prompt_enhancement
+            },
+            'medium_priority': {
+                'action': 'quality_improvement', 
+                'response_modifier': self._add_context_and_examples,
+                'examples_needed': True,
+                'detail_level': 'detailed',
+                'llm_prompt_modifier': self._get_detail_prompt_enhancement
+            },
+            'low_priority': {
+                'action': 'maintain_quality',
+                'response_modifier': self._maintain_current_approach,
+                'examples_needed': False,
+                'detail_level': 'standard',
+                'llm_prompt_modifier': None
+            }
+        }
+        
+        # Template for successful responses (learned from positive feedback)
+        self.response_templates = {
+            'high_satisfaction': [],  # Responses that got excellent/positive feedback
+            'common_patterns': {},    # Patterns found in successful responses
+            'improvement_prompts': {} # LLM prompts that improve responses
+        }
+    
+    def get_response_enhancement_prompt(self, original_query, current_priority='medium'):
+        """Generate LLM prompt enhancement based on learning insights"""
+        strategy = self.improvement_strategies.get(current_priority, self.improvement_strategies['medium_priority'])
+        
+        if strategy.get('llm_prompt_modifier'):
+            return strategy['llm_prompt_modifier'](original_query)
+        
+        return None
+    
+    def _get_accuracy_prompt_enhancement(self, query):
+        """Enhance LLM prompt for better accuracy (high priority improvement)"""
+        satisfaction = self.learning_patterns.get('recent_satisfaction', 0)
+        
+        enhancement = f"""
+PRIORITY: HIGH ACCURACY NEEDED
+Recent user satisfaction: {satisfaction*100:.1f}% - Users need more accurate responses.
+
+Enhanced Instructions:
+1. Provide step-by-step, verified information
+2. Include specific examples and concrete details  
+3. Double-check all technical information
+4. Avoid vague or general statements
+5. If uncertain, clearly state limitations
+
+User Query: {query}
+
+Focus on delivering the most accurate, helpful response possible.
+"""
+        return enhancement.strip()
+    
+    def _get_detail_prompt_enhancement(self, query):
+        """Enhance LLM prompt for better detail and clarity (medium priority)"""
+        satisfaction = self.learning_patterns.get('recent_satisfaction', 0)
+        
+        enhancement = f"""
+PRIORITY: IMPROVE DETAIL AND CLARITY
+Recent user satisfaction: {satisfaction*100:.1f}% - Users need clearer, more detailed explanations.
+
+Enhanced Instructions:
+1. Provide comprehensive explanations with context
+2. Include relevant examples and use cases
+3. Break down complex topics into digestible parts
+4. Add helpful tips and best practices
+5. Structure information clearly with headings/bullets
+
+User Query: {query}
+
+Provide a detailed, well-structured response that leaves no important questions unanswered.
+"""
+        return enhancement.strip()
+    
+    def _enhance_response_accuracy(self, response_content):
+        """Modify response for better accuracy (high priority strategy)"""
+        # This would integrate with your main LLM processor
+        # to re-generate or enhance the response with accuracy focus
+        enhanced_prompt = self._get_accuracy_prompt_enhancement("")
+        return f"[ACCURACY ENHANCED] {response_content}"
+    
+    def _add_context_and_examples(self, response_content):
+        """Add context and examples to response (medium priority strategy)"""
+        enhanced_prompt = self._get_detail_prompt_enhancement("")
+        return f"[DETAIL ENHANCED] {response_content}"
+    
+    def _maintain_current_approach(self, response_content):
+        """Maintain current response quality (low priority strategy)"""
+        return response_content
+    
+    def apply_learning_to_response(self, original_query, base_response):
+        """Apply learned improvements to a response based on feedback patterns"""
+        try:
+            current_status = self.get_learning_status()
+            priority = current_status.get('improvements', {}).get('priority', 'medium')
+            
+            # Get the appropriate strategy
+            strategy = self.improvement_strategies.get(f"{priority}_priority", 
+                                                     self.improvement_strategies['medium_priority'])
+            
+            # Apply response modification
+            response_modifier = strategy.get('response_modifier')
+            if response_modifier:
+                enhanced_response = response_modifier(base_response)
+            else:
+                enhanced_response = base_response
+            
+            # Store successful patterns for future learning
+            self._store_response_pattern(original_query, enhanced_response, priority)
+            
+            return enhanced_response
+            
+        except Exception as e:
+            print(f"Error applying learning to response: {e}")
+            return base_response
+    
+    def _store_response_pattern(self, query, response, priority):
+        """Store successful response patterns for future reference"""
+        pattern_data = {
+            'query_type': self._classify_query_type(query),
+            'response_length': len(response),
+            'priority_used': priority,
+            'timestamp': datetime.now(),
+            'enhancement_applied': True
+        }
+        
+        if priority not in self.response_templates:
+            self.response_templates[priority] = []
+        
+        self.response_templates[priority].append(pattern_data)
+        
+        # Keep only recent patterns (last 50)
+        if len(self.response_templates[priority]) > 50:
+            self.response_templates[priority] = self.response_templates[priority][-50:]
+    
+    def _classify_query_type(self, query):
+        """Classify query type for pattern analysis"""
+        query_lower = query.lower()
+        
+        if any(word in query_lower for word in ['how to', 'how do', 'how can']):
+            return 'how_to'
+        elif any(word in query_lower for word in ['what is', 'what are', 'what does']):
+            return 'definition'
+        elif any(word in query_lower for word in ['error', 'problem', 'issue', 'bug']):
+            return 'troubleshooting'
+        elif '?' in query:
+            return 'question'
+        else:
+            return 'general'
+    
+    def _load_historical_feedback(self):
+        """Load historical feedback from MongoDB"""
+        try:
+            print("🔍 Loading historical feedback from MongoDB...")
+            
+            # Use the safer chat manager getter
+            chat_manager = get_chat_manager()
+            
+            if chat_manager is not None and hasattr(chat_manager, 'db') and chat_manager.db is not None:
+                feedback_collection = chat_manager.db['user_feedback']
+                
+                # Load recent feedback (last 50 entries)
+                recent_feedback = list(feedback_collection.find().sort('timestamp', -1).limit(50))
+                
+                print(f"📦 Found {len(recent_feedback)} historical feedback entries")
+                
+                for feedback in recent_feedback:
+                    self.feedback_history.append({
+                        'user_id': feedback.get('user_id'),
+                        'response_content': feedback.get('response_content'),
+                        'feedback_type': feedback.get('feedback_type'),
+                        'feedback_category': feedback.get('feedback_category'),
+                        'timestamp': feedback.get('timestamp'),
+                        'session_id': feedback.get('session_id')
+                    })
+                
+                # Analyze loaded feedback
+                if self.feedback_history:
+                    self._analyze_feedback_patterns()
+                    self._generate_learning_insights()
+                    print(f"📊 Historical feedback loaded and analyzed: {len(self.feedback_history)} total entries")
+                else:
+                    print("ℹ️ No historical feedback found - starting fresh")
+                    
+            else:
+                print("⚠️ MongoDB connection not available - starting without historical feedback")
+                
+        except Exception as e:
+            print(f"❌ Error loading historical feedback: {e}")
+    
+    def add_feedback(self, feedback_data):
+        """Add new feedback data for learning"""
+        self.feedback_history.append(feedback_data)
+        
+        # Keep only recent feedback in memory (last 100)
+        if len(self.feedback_history) > 100:
+            self.feedback_history = self.feedback_history[-100:]
+        
+        self._analyze_feedback_patterns()
+        self._generate_learning_insights()
+    
+    def _analyze_feedback_patterns(self):
+        """Analyze patterns in user feedback"""
+        if len(self.feedback_history) < 3:
+            return
+        
+        # Analyze recent feedback trends
+        recent_feedback = self.feedback_history[-20:]  # Last 20 pieces of feedback
+        
+        # Count feedback types
+        feedback_counts = {}
+        for feedback in recent_feedback:
+            ftype = feedback['feedback_type']
+            feedback_counts[ftype] = feedback_counts.get(ftype, 0) + 1
+        
+        # Identify patterns
+        total_recent = len(recent_feedback)
+        if total_recent > 0:
+            positive_ratio = (feedback_counts.get('positive', 0) + feedback_counts.get('excellent', 0)) / total_recent
+            self.learning_patterns['recent_satisfaction'] = positive_ratio
+            self.learning_patterns['needs_improvement'] = feedback_counts.get('needs_improvement', 0) / total_recent
+            self.learning_patterns['total_feedback_analyzed'] = total_recent
+            
+            # Analyze trends over time
+            if len(self.feedback_history) >= 10:
+                older_feedback = self.feedback_history[-40:-20] if len(self.feedback_history) >= 40 else self.feedback_history[:-20]
+                if older_feedback:
+                    older_positive = sum(1 for f in older_feedback if f['feedback_type'] in ['positive', 'excellent'])
+                    older_ratio = older_positive / len(older_feedback)
+                    self.learning_patterns['improvement_trend'] = positive_ratio - older_ratio
+    
+    def _generate_learning_insights(self):
+        """Generate insights for improving responses"""
+        if not self.learning_patterns:
+            return
+        
+        # Generate improvement suggestions based on patterns
+        satisfaction = self.learning_patterns.get('recent_satisfaction', 0)
+        improvement_trend = self.learning_patterns.get('improvement_trend', 0)
+        
+        if satisfaction < 0.5:  # Less than 50% satisfaction
+            self.response_improvements['suggestion'] = "Focus on providing more accurate and helpful responses"
+            self.response_improvements['priority'] = 'high'
+            self.response_improvements['action'] = 'immediate_attention'
+        elif satisfaction < 0.7:  # Less than 70% satisfaction
+            self.response_improvements['suggestion'] = "Enhance response detail and provide clearer explanations"
+            self.response_improvements['priority'] = 'medium'
+            self.response_improvements['action'] = 'quality_improvement'
+        elif satisfaction < 0.85:  # Less than 85% satisfaction
+            self.response_improvements['suggestion'] = "Fine-tune responses for better user experience"
+            self.response_improvements['priority'] = 'medium'
+            self.response_improvements['action'] = 'optimization'
+        else:
+            self.response_improvements['suggestion'] = "Excellent performance! Continue current approach"
+            self.response_improvements['priority'] = 'low'
+            self.response_improvements['action'] = 'maintain_quality'
+        
+        # Add trend information
+        if improvement_trend > 0.1:
+            self.response_improvements['trend'] = 'improving'
+            self.response_improvements['trend_message'] = "📈 Performance improving over time!"
+        elif improvement_trend < -0.1:
+            self.response_improvements['trend'] = 'declining'
+            self.response_improvements['trend_message'] = "📉 Need to focus on quality improvement"
+        else:
+            self.response_improvements['trend'] = 'stable'
+            self.response_improvements['trend_message'] = "📊 Performance is stable"
+    
+    def get_learning_status(self):
+        """Get current learning status and insights"""
+        total_feedback = len(self.feedback_history)
+        if total_feedback == 0:
+            return {
+                'status': 'initializing',
+                'message': 'Learning system ready - waiting for feedback',
+                'score': 0,
+                'insights': []
+            }
+        
+        satisfaction = self.learning_patterns.get('recent_satisfaction', 0)
+        score = satisfaction * 100
+        
+        status = 'learning'
+        if score >= 85:
+            status = 'excellent'
+        elif score >= 70:
+            status = 'good'
+        elif score >= 50:
+            status = 'improving'
+        else:
+            status = 'needs_attention'
+        
+        return {
+            'status': status,
+            'score': round(score, 1),
+            'total_feedback': total_feedback,
+            'improvements': self.response_improvements,
+            'patterns': self.learning_patterns
+        }
+    
+    def get_learning_insights(self):
+        """Get detailed learning insights for analysis"""
+        return {
+            'feedback_history_size': len(self.feedback_history),
+            'patterns': self.learning_patterns,
+            'improvements': self.response_improvements,
+            'recent_feedback_summary': self._get_recent_feedback_summary()
+        }
+    
+    def _get_recent_feedback_summary(self):
+        """Get summary of recent feedback"""
+        if not self.feedback_history:
+            return {}
+        
+        recent = self.feedback_history[-10:]  # Last 10 feedbacks
+        summary = {
+            'total': len(recent),
+            'positive': sum(1 for f in recent if f['feedback_type'] == 'positive'),
+            'excellent': sum(1 for f in recent if f['feedback_type'] == 'excellent'),
+            'negative': sum(1 for f in recent if f['feedback_type'] == 'negative'),
+            'needs_improvement': sum(1 for f in recent if f['feedback_type'] == 'needs_improvement')
+        }
+        return summary
 
 def display_chat_history():
     """Display chat history with proper markdown rendering"""
@@ -2049,6 +2699,41 @@ def display_chat_history():
                         # If it's already markdown text, render it directly
                         st.markdown(content)
                     
+                    # Add feedback collection for bot responses
+                    if message['type'] == 'bot':
+                        with st.container():
+                            st.markdown("<div style='margin: 0.5rem 0;'></div>", unsafe_allow_html=True)
+                            
+                            # Create unique key for this message
+                            message_key = f"feedback_{len(st.session_state.chat_history)}_{timestamp.replace(':', '_')}"
+                            
+                            # Get user_id from session state
+                            customer_info = st.session_state.customer_info or {}
+                            user_id = customer_info.get('email', 'demo_user')
+                            
+                            # Feedback buttons in a compact layout
+                            col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 6])
+                            
+                            with col1:
+                                if st.button("👍", key=f"{message_key}_thumbs_up", help="Helpful response", use_container_width=True):
+                                    collect_feedback(user_id, message['content'], 'positive', 'thumbs_up')
+                                    st.toast("✅ Thanks for your feedback!")
+                            
+                            with col2:
+                                if st.button("👎", key=f"{message_key}_thumbs_down", help="Not helpful", use_container_width=True):
+                                    collect_feedback(user_id, message['content'], 'negative', 'thumbs_down')
+                                    st.toast("📝 Thank you. We'll improve!")
+                            
+                            with col3:
+                                if st.button("⭐", key=f"{message_key}_excellent", help="Excellent response", use_container_width=True):
+                                    collect_feedback(user_id, message['content'], 'excellent', 'star')
+                                    st.toast("🌟 Excellent! Thanks!")
+                            
+                            with col4:
+                                if st.button("🔄", key=f"{message_key}_improve", help="Needs improvement", use_container_width=True):
+                                    collect_feedback(user_id, message['content'], 'needs_improvement', 'improve')
+                                    st.toast("🔧 We'll work on improving!")
+                    
                     # Add some spacing
                     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -2091,8 +2776,27 @@ def process_query(query, processor, user_id):
                     'type': msg['type']  # Keep original type field
                 })
             
+            # Apply learning enhancements to the query processing
+            enhanced_query = query
+            learning_prompt_enhancement = None
+            
+            # Get learning manager and apply improvements
+            if hasattr(st.session_state, 'learning_manager') and st.session_state.learning_manager:
+                learning_manager = st.session_state.learning_manager
+                learning_status = learning_manager.get_learning_status()
+                
+                # Get prompt enhancement based on current learning state
+                priority = learning_status.get('improvements', {}).get('priority', 'medium')
+                learning_prompt_enhancement = learning_manager.get_response_enhancement_prompt(query, priority)
+                
+                # If we have enhancement, modify the query processing
+                if learning_prompt_enhancement:
+                    # You would integrate this with your main processor's LLM calls
+                    # For now, we'll apply it to the result after processing
+                    pass
+            
             # Actually process the query, passing history for context
-            result = processor.process_query(user_id, query, history=formatted_history)
+            result = processor.process_query(user_id, enhanced_query, history=formatted_history)
             
             progress_bar.progress(100)
             status_text.text("✅ Complete!")
@@ -2104,6 +2808,8 @@ def process_query(query, processor, user_id):
             
             # Extract the actual response content from the result
             response_text = ""
+            base_response = ""
+            
             if isinstance(result, dict):
                 # Check if ticket creation is ready
                 if result.get('ticket_creation_ready'):
@@ -2121,14 +2827,20 @@ def process_query(query, processor, user_id):
                     st.session_state.ticket_query = query
                     response_text = result['formatted_response']
                 elif 'response' in result and result['response']:
-                    response_text = result['response']
+                    base_response = result['response']
                 elif 'formatted_response' in result and result['formatted_response']:
-                    response_text = result['formatted_response']
+                    base_response = result['formatted_response']
                 else:
-                    response_text = "❌ Sorry, I couldn't find a relevant response to your query."
+                    base_response = "❌ Sorry, I couldn't find a relevant response to your query."
             else:
                 # If result is a string, return as-is
-                response_text = result if result else "❌ Sorry, I couldn't process your query."
+                base_response = result if result else "❌ Sorry, I couldn't process your query."
+            
+            # Apply learning-based improvements to the response
+            if hasattr(st.session_state, 'learning_manager') and st.session_state.learning_manager and base_response:
+                response_text = st.session_state.learning_manager.apply_learning_to_response(query, base_response)
+            else:
+                response_text = base_response
             
             # Audio feedback if enabled
             if VOICE_AVAILABLE and st.session_state.get('audio_enabled', False):
@@ -2540,7 +3252,7 @@ def main():
     
     # Show example queries only when input is empty (regardless of chat history)
     if not query or query.strip() == "":
-        with st.expander("💡 Try asking:", expanded=True):
+        with st.expander("💡 Try asking:", expanded=False):
             st.markdown("**Choose from these example queries:**")
             
             # Show suggestions in a clean list
