@@ -1301,6 +1301,8 @@ def initialize_session_state():
         st.session_state.show_ticket_form = False
     if 'ticket_query' not in st.session_state:
         st.session_state.ticket_query = ""
+    if 'is_escalation' not in st.session_state:
+        st.session_state.is_escalation = False
 
 
 def _format_timestamp_to_local(ts):
@@ -1644,15 +1646,32 @@ Have a great day!
     """.strip()
 
 def is_direct_ticket_request(query):
-    """Check if the user is directly requesting to create a ticket"""
+    """Check if the user is directly requesting to create a ticket or escalate to human support"""
     query_lower = query.lower().strip()
+    
+    # Direct ticket creation keywords
     ticket_keywords = [
         'create a ticket', 'create ticket', 'make a ticket', 'make ticket',
         'open a ticket', 'open ticket', 'submit a ticket', 'submit ticket',
         'file a ticket', 'file ticket', 'raise a ticket', 'raise ticket',
         'log a ticket', 'log ticket', 'create support ticket', 'ticket for'
     ]
-    return any(keyword in query_lower for keyword in ticket_keywords)
+    
+    # Human support escalation keywords (natural language patterns)
+    escalation_keywords = [
+        'assign it to human support', 'assign to human support', 'escalate to support',
+        'escalate to human support', 'escalate to support team', 'need human assistance',
+        'need human help', 'transfer to human', 'human support', 'speak to a human',
+        'talk to a human', 'contact human support', 'get human help',
+        'assign to support team', 'escalate this issue', 'escalate this to support',
+        'forward to support', 'send to support team', 'human intervention needed',
+        'need manual assistance', 'require human support', 'human review needed',
+        'assign for further investigation', 'human support for further investigation'
+    ]
+    
+    # Check for any matching keywords
+    all_keywords = ticket_keywords + escalation_keywords
+    return any(keyword in query_lower for keyword in all_keywords)
 
 def extract_issue_from_ticket_request(query):
     """Extract the actual issue from a ticket creation request"""
@@ -2620,7 +2639,7 @@ Provide a detailed, well-structured response that leaves no important questions 
 
 def display_chat_history():
     """Display chat history with proper markdown rendering"""
-    for message in st.session_state.chat_history:
+    for i, message in enumerate(st.session_state.chat_history):
         timestamp = message.get('timestamp', '')
         
         if message['type'] == 'user':
@@ -2704,8 +2723,10 @@ def display_chat_history():
                         with st.container():
                             st.markdown("<div style='margin: 0.5rem 0;'></div>", unsafe_allow_html=True)
                             
-                            # Create unique key for this message
-                            message_key = f"feedback_{len(st.session_state.chat_history)}_{timestamp.replace(':', '_')}"
+                            # Create unique key for this message using index and content hash
+                            import hashlib
+                            content_hash = hashlib.md5(message['content'].encode()).hexdigest()[:8]
+                            message_key = f"feedback_{i}_{content_hash}_{timestamp.replace(':', '_').replace('.', '_')}"
                             
                             # Get user_id from session state
                             customer_info = st.session_state.customer_info or {}
@@ -2742,11 +2763,34 @@ def process_query(query, processor, user_id):
     try:
         # Check if this is a direct ticket creation request
         if is_direct_ticket_request(query):
-            # Extract the actual issue from the ticket creation request
-            actual_issue = extract_issue_from_ticket_request(query)
-            st.session_state.show_ticket_form = True
-            st.session_state.ticket_query = actual_issue
-            return f"🎫 **Creating Support Ticket**\n\nI'll help you create a support ticket for: {actual_issue}\n\nPlease fill out the ticket form below to complete your support request."
+            # Check if this is an escalation request (should auto-create ticket)
+            query_lower = query.lower().strip()
+            escalation_phrases = [
+                'assign it to human support', 'assign to human support', 'escalate to support',
+                'escalate to human support', 'escalate to support team', 'need human assistance',
+                'need human help', 'transfer to human', 'human support', 'speak to a human',
+                'talk to a human', 'contact human support', 'get human help',
+                'assign to support team', 'escalate this issue', 'escalate this to support',
+                'forward to support', 'send to support team', 'human intervention needed',
+                'need manual assistance', 'require human support', 'human review needed',
+                'assign for further investigation', 'human support for further investigation'
+            ]
+            
+            is_escalation = any(phrase in query_lower for phrase in escalation_phrases)
+            
+            if is_escalation:
+                # For escalation requests, show ticket form with escalation context
+                actual_issue = extract_issue_from_ticket_request(query)
+                st.session_state.show_ticket_form = True
+                st.session_state.ticket_query = actual_issue
+                st.session_state.is_escalation = True  # Flag to indicate this is an escalation
+                return f"🎫 **Escalating to Human Support**\n\nI understand you need human assistance. I'll help you create a support ticket to escalate this to our support team.\n\n**Your Request:** {actual_issue}\n\nPlease fill out the ticket form below with the required details to complete your escalation request."
+            else:
+                # For explicit ticket creation requests, show the form
+                actual_issue = extract_issue_from_ticket_request(query)
+                st.session_state.show_ticket_form = True
+                st.session_state.ticket_query = actual_issue
+                return f"🎫 **Creating Support Ticket**\n\nI'll help you create a support ticket for: {actual_issue}\n\nPlease fill out the ticket form below to complete your support request."
         
         with st.spinner("🔍 Processing your query..."):
             # Create a progress bar
@@ -2880,12 +2924,21 @@ def display_ticket_creation_form():
         return
         
     st.markdown("---")
-    st.markdown("### 🎫 Create Support Ticket")
-    st.markdown("Since no relevant information was found, let's create a support ticket for your query.")
+    
+    # Different messaging for escalation vs regular ticket creation
+    if st.session_state.get('is_escalation', False):
+        st.markdown("### 🎫 Escalate to Human Support")
+        st.markdown("I'll help you escalate this to our support team. Please provide the required details below.")
+    else:
+        st.markdown("### 🎫 Create Support Ticket")
+        st.markdown("Since no relevant information was found, let's create a support ticket for your query.")
     
     with st.form("ticket_creation_form"):
         # Display original query
-        st.markdown(f"**Original Query:** {st.session_state.ticket_query}")
+        if st.session_state.get('is_escalation', False):
+            st.markdown(f"**Escalation Request:** {st.session_state.ticket_query}")
+        else:
+            st.markdown(f"**Original Query:** {st.session_state.ticket_query}")
         
         # Ticket fields
         col1, col2 = st.columns(2)
@@ -2923,10 +2976,110 @@ def display_ticket_creation_form():
                 help="Select the environment where this issue occurs"
             )
         
-        # Description (auto-filled but editable)
+def generate_conversation_summary_for_ticket():
+    """Generate a comprehensive summary of the conversation for ticket description"""
+    if not st.session_state.chat_history:
+        return st.session_state.ticket_query
+    
+    summary_lines = []
+    user_queries = []
+    
+    # Extract all user queries from the conversation
+    for message in st.session_state.chat_history:
+        if message['type'] == 'user':
+            user_queries.append(message['content'].strip())
+    
+    if user_queries:
+        summary_lines.append("CONVERSATION SUMMARY:")
+        summary_lines.append("=" * 50)
+        
+        # Add chronological user queries
+        for i, query in enumerate(user_queries, 1):
+            summary_lines.append(f"{i}. {query}")
+        
+        summary_lines.append("")
+        
+        # Add context based on escalation type
+        if st.session_state.get('is_escalation', False):
+            summary_lines.append("ESCALATION CONTEXT:")
+            summary_lines.append("User specifically requested human support escalation after attempting to find information through the chatbot.")
+        else:
+            summary_lines.append("CONTEXT:")
+            summary_lines.append("No relevant information was found in the knowledge base for the user's queries.")
+        
+        summary_lines.append("")
+        summary_lines.append("IMMEDIATE ISSUE:")
+        summary_lines.append(f"Latest request: {st.session_state.ticket_query}")
+        
+        return "\n".join(summary_lines)
+    else:
+        # Fallback if no chat history
+        return st.session_state.ticket_query
+
+def display_ticket_creation_form():
+    """Display interactive ticket creation form"""
+    if not st.session_state.show_ticket_form:
+        return
+        
+    st.markdown("---")
+    
+    # Different messaging for escalation vs regular ticket creation
+    if st.session_state.get('is_escalation', False):
+        st.markdown("### 🎫 Escalate to Human Support")
+        st.markdown("I'll help you escalate this to our support team. Please provide the required details below.")
+    else:
+        st.markdown("### 🎫 Create Support Ticket")
+        st.markdown("Since no relevant information was found, let's create a support ticket for your query.")
+    
+    with st.form("ticket_creation_form"):
+        # Display original query
+        if st.session_state.get('is_escalation', False):
+            st.markdown(f"**Escalation Request:** {st.session_state.ticket_query}")
+        else:
+            st.markdown(f"**Original Query:** {st.session_state.ticket_query}")
+        
+        # Ticket fields
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Priority
+            priority = st.selectbox(
+                "Priority", 
+                ["Medium", "High", "Low", "Highest", "Lowest"],
+                index=0,
+                help="Select the priority level for this ticket"
+            )
+            
+            # Area affected
+            area = st.selectbox(
+                "Area Affected",
+                ["Other", "UI/UX", "Performance", "Integration", "Data", "Security"],
+                index=0,
+                help="Select the area most affected by this issue"
+            )
+            
+        with col2:
+            # Version
+            version = st.text_input(
+                "Version Affected", 
+                value="latest",
+                help="Enter the version where this issue occurs"
+            )
+            
+            # Environment
+            environment = st.selectbox(
+                "Environment",
+                ["production", "staging", "development", "testing"],
+                index=0,
+                help="Select the environment where this issue occurs"
+            )
+        
+        # Description (auto-filled with conversation summary but editable)
+        default_description = generate_conversation_summary_for_ticket()
+            
         description = st.text_area(
             "Description",
-            value=f"User Query: {st.session_state.ticket_query}\n\nNo relevant information was found in the knowledge base. Please investigate and provide assistance.",
+            value=default_description,
             height=100,
             help="Modify the description if needed"
         )
@@ -3032,6 +3185,7 @@ def display_ticket_creation_form():
                 # Reset form state
                 st.session_state.show_ticket_form = False
                 st.session_state.ticket_query = ""
+                st.session_state.is_escalation = False
                 
                 st.rerun()
                 
@@ -3042,6 +3196,7 @@ def display_ticket_creation_form():
             # Reset form state
             st.session_state.show_ticket_form = False
             st.session_state.ticket_query = ""
+            st.session_state.is_escalation = False
             st.rerun()
     
     # Add download button outside the form if ticket content is available

@@ -6,6 +6,7 @@ from typing import Dict, Optional
 import json
 import os
 from datetime import datetime
+from customer_role_manager import CustomerRoleMappingManager
 
 class TicketCreator:
     """
@@ -18,13 +19,17 @@ class TicketCreator:
         with open(config_path, 'r') as f:
             self.ticket_config = json.load(f)
         
-        # Load customer mappings
-        self.customer_email_to_category = {
+        # Initialize dynamic customer role manager
+        self.customer_role_manager = CustomerRoleMappingManager()
+        
+        # Fallback customer mappings (only used if Excel system fails)
+        self.fallback_customer_email_to_category = {
             'amd.com': 'MNHT',
             'novartis.com': 'MNLS',
             'wdc.com': 'MNHT',
             'abbott.com': 'MNHT',
-            'abbvie.com': 'MNLS'
+            'abbvie.com': 'MNLS',
+            'amgen.com': 'MNLS'
         }
     
     def create_ticket(self, query: str, customer_email: str = None) -> Dict:
@@ -44,12 +49,13 @@ class TicketCreator:
                 'novartis.com': 'Novartis',  
                 'wdc.com': 'Wdc',
                 'abbott.com': 'Abbott',
-                'abbvie.com': 'Abbvie'
+                'abbvie.com': 'Abbvie',
+                'amgen.com': 'Amgen'
             }
             customer = domain_to_customer.get(domain, domain.split('.')[0].capitalize())
         
         # Determine ticket category
-        category = self.determine_ticket_category(query, customer)
+        category = self.determine_ticket_category(query, customer, customer_email)
         print(f"🏷️  Category: {category}")
         print(f"👤 Customer: {customer}")
         
@@ -166,7 +172,7 @@ class TicketCreator:
             customer = domain_to_customer.get(domain, domain.split('.')[0].capitalize())
         
         # Determine ticket category
-        category = self.determine_ticket_category(query, customer)
+        category = self.determine_ticket_category(query, customer, customer_email)
         
         print(f"🏷️  Category: {category}")
         print(f"👤 Customer: {customer}")
@@ -201,15 +207,66 @@ class TicketCreator:
         
         return ticket_data
     
-    def determine_ticket_category(self, query: str, customer: str) -> str:
+    def get_category_from_email(self, customer_email: str) -> str:
+        """
+        Get ticket category from customer email using Excel sheet-based mapping
+        
+        Args:
+            customer_email: Customer email address
+            
+        Returns:
+            Ticket category based on Excel sheet (MNLS for LS sheet, MNHT for HT sheet)
+        """
+        if not customer_email:
+            return self.ticket_config.get("default_category", "MNHT")
+        
+        try:
+            # Extract domain from email
+            domain = customer_email.split('@')[-1].lower()
+            
+            # Get customer mapping from Excel-based system
+            customer_mapping = self.customer_role_manager.get_customer_mapping(domain)
+            
+            if customer_mapping and 'sheet' in customer_mapping:
+                sheet_name = customer_mapping['sheet'].upper()
+                
+                # Map sheet name to ticket category
+                if sheet_name == 'LS':
+                    category = 'MNLS'
+                    print(f"🧬 Excel sheet mapping: {customer_mapping.get('organization', 'Unknown')} ({domain}) → Sheet: LS → Category: MNLS")
+                    return category
+                elif sheet_name == 'HT':
+                    category = 'MNHT'  
+                    print(f"💻 Excel sheet mapping: {customer_mapping.get('organization', 'Unknown')} ({domain}) → Sheet: HT → Category: MNHT")
+                    return category
+                else:
+                    print(f"⚠️  Unknown sheet '{sheet_name}' for {domain}, using default category")
+            
+            # Fallback to hardcoded mappings if Excel system doesn't have the customer
+            if domain in self.fallback_customer_email_to_category:
+                category = self.fallback_customer_email_to_category[domain]
+                print(f"🔄 Fallback mapping: {domain} → Category: {category}")
+                return category
+            
+            print(f"⚠️  No mapping found for {domain}, using default category")
+            return self.ticket_config.get("default_category", "MNHT")
+            
+        except Exception as e:
+            print(f"❌ Error getting category from email {customer_email}: {e}")
+            return self.ticket_config.get("default_category", "MNHT")
+
+    def determine_ticket_category(self, query: str, customer: str, customer_email: str = None) -> str:
         """
         Determine the appropriate ticket category based on query content and customer
-        Keyword matching takes precedence over customer mapping
-        Prioritizes longer, more specific keywords over shorter ones
+        Priority order:
+        1. Keyword matching in query (highest priority)
+        2. Excel-based customer email domain mapping
+        3. Hardcoded customer name fallback
+        4. Default category
         """
         query_lower = query.lower()
         
-        # Collect all matching keywords with their categories and lengths
+        # 1. First priority: Keyword matching in query content
         matches = []
         for category, config in self.ticket_config["ticket_categories"].items():
             keywords = config.get("keywords", [])
@@ -217,29 +274,36 @@ class TicketCreator:
                 if keyword.lower() in query_lower:
                     matches.append((len(keyword), keyword, category))
         
-        # If matches found, return the category of the longest (most specific) keyword
+        # If keyword matches found, return the category of the longest (most specific) keyword
         if matches:
-            # Sort by keyword length (descending) to prioritize longer keywords
             matches.sort(key=lambda x: x[0], reverse=True)
             longest_keyword = matches[0][1]
             category = matches[0][2]
-            print(f"🎯 Keyword match: '{longest_keyword}' found in query -> Category: {category}")
+            print(f"🎯 Keyword match: '{longest_keyword}' found in query → Category: {category}")
             return category
         
-        # If no keyword match found, use customer-specific fallback mapping
+        # 2. Second priority: Excel-based customer email domain mapping
+        if customer_email:
+            category = self.get_category_from_email(customer_email)
+            if category != self.ticket_config.get("default_category", "MNHT"):
+                return category
+        
+        # 3. Third priority: Hardcoded customer name fallback mapping
         customer_to_category = {
             'AMD': 'MNHT',
             'NOVARTIS': 'MNLS', 
             'WDC': 'MNHT',
             'ABBOTT': 'MNHT',
-            'ABBVIE': 'MNLS'
+            'ABBVIE': 'MNLS',
+            'AMGEN': 'MNLS'
         }
         
-        if customer in customer_to_category:
-            print(f"🏢 Customer fallback: {customer} -> Category: {customer_to_category[customer]}")
-            return customer_to_category[customer]
+        if customer.upper() in customer_to_category:
+            category = customer_to_category[customer.upper()]
+            print(f"🏢 Customer name fallback: {customer} → Category: {category}")
+            return category
         
-        # Default fallback
+        # 4. Final fallback: Default category
         default_category = self.ticket_config.get("default_category", "MNHT")
         print(f"⚠️ Using default category: {default_category}")
         return default_category
@@ -566,7 +630,7 @@ Priority: {ticket_data.get('priority', 'N/A')}
             customer = domain_to_customer.get(domain, domain.split('.')[0].capitalize())
         
         # Determine category based on customer domain
-        category = self.determine_ticket_category(query, customer)
+        category = self.determine_ticket_category(query, customer, customer_email)
         
         print(f"🏷️  Category: {category}")
         print(f"👤 Customer: {customer}")

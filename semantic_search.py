@@ -35,6 +35,113 @@ class SemanticSearch:
         """Get the file path for storing documents for a specific source"""
         return os.path.join(self.vector_store_path, f"{source.lower()}_documents.pkl")
     
+    def _prepare_document_text(self, doc: Dict) -> str:
+        """
+        Extract and combine text fields from document for embedding
+        
+        Args:
+            doc: Document dictionary with various text fields
+            
+        Returns:
+            Combined text string ready for embedding
+        """
+        text_parts = []
+        
+        # Primary content fields
+        title = doc.get('title', '')
+        if title:
+            text_parts.append(f"Title: {title}")
+            
+        # Content field with fallbacks
+        content = doc.get('content', '') or doc.get('summary', '') or doc.get('description', '')
+        if content:
+            text_parts.append(f"Content: {content}")
+        
+        # Additional specific fields that might exist
+        if doc.get('summary') and doc.get('summary') != content:
+            text_parts.append(f"Summary: {doc.get('summary')}")
+        if doc.get('description') and doc.get('description') != content:
+            text_parts.append(f"Description: {doc.get('description')}")
+        
+        # Metadata fields for enhanced context
+        if doc.get('labels'):
+            labels = doc.get('labels', [])
+            if isinstance(labels, list):
+                text_parts.append(f"Labels: {', '.join(labels)}")
+            else:
+                text_parts.append(f"Labels: {labels}")
+        
+        if doc.get('status'):
+            text_parts.append(f"Status: {doc.get('status')}")
+            
+        if doc.get('priority'):
+            text_parts.append(f"Priority: {doc.get('priority')}")
+        
+        # Combine all parts
+        combined_text = '\n'.join(text_parts).strip()
+        return combined_text if combined_text else doc.get('title', 'No content')
+    
+    def _calculate_similarities(self, query: str, documents: List[Dict]) -> List[Tuple[Dict, float]]:
+        """
+        Calculate cosine similarities between query and documents
+        
+        Args:
+            query: Search query
+            documents: List of documents to compare against
+            
+        Returns:
+            List of (document, similarity_score) tuples sorted by score descending
+        """
+        if not documents:
+            return []
+        
+        try:
+            # Extract text content for embedding
+            texts = [self._prepare_document_text(doc) for doc in documents]
+            
+            # Generate embeddings for documents and query
+            document_embeddings = self.model.encode(texts)
+            query_embedding = self.model.encode([query])
+            
+            # Calculate cosine similarities
+            similarities = cosine_similarity(query_embedding, document_embeddings)[0]
+            
+            # Create list of (document, score) pairs
+            doc_score_pairs = list(zip(documents, similarities))
+            
+            # Sort by similarity score (descending)
+            doc_score_pairs.sort(key=lambda x: x[1], reverse=True)
+            
+            return doc_score_pairs
+            
+        except Exception as e:
+            print(f"Error calculating similarities: {e}")
+            return [(doc, 0.0) for doc in documents]
+    
+    def _filter_by_threshold(self, doc_score_pairs: List[Tuple[Dict, float]], top_k: int) -> List[Tuple[Dict, float]]:
+        """
+        Apply similarity threshold filtering with fallback logic
+        
+        Args:
+            doc_score_pairs: List of (document, score) tuples sorted by score
+            top_k: Maximum number of results to return
+            
+        Returns:
+            Filtered list of (document, score) tuples
+        """
+        results = []
+        
+        for i, (doc, score) in enumerate(doc_score_pairs[:top_k * 2]):  # Check more results than needed
+            # Apply threshold and collect results
+            if score >= self.similarity_threshold and len(results) < top_k:
+                results.append((doc, float(score)))
+            elif len(results) < 2 and i < 5:  # Ensure at least 2 results from top 5 if available
+                results.append((doc, float(score)))
+                if hasattr(self, '_debug_mode'):  # Optional debug logging
+                    print(f"      ↳ Included despite low score ({score:.4f}) for minimum results")
+        
+        return results[:top_k]
+    
     def store_documents(self, documents: List[Dict], source: str):
         """
         Store documents and their embeddings for a specific source
@@ -46,32 +153,8 @@ class SemanticSearch:
         if not documents:
             return
         
-        # Extract text content for embedding with enhanced context
-        texts = []
-        for doc in documents:
-            # Combine title and content for better semantic representation
-            title = doc.get('title', '')
-            content = doc.get('content', '') or doc.get('summary', '') or doc.get('description', '')
-            
-            # Add additional context fields if available
-            extra_fields = []
-            if doc.get('labels'):
-                labels = doc.get('labels', [])
-                if isinstance(labels, list):
-                    extra_fields.append(f"Labels: {', '.join(labels)}")
-                else:
-                    extra_fields.append(f"Labels: {labels}")
-            
-            if doc.get('status'):
-                extra_fields.append(f"Status: {doc.get('status')}")
-                
-            if doc.get('priority'):
-                extra_fields.append(f"Priority: {doc.get('priority')}")
-            
-            # Combine all text with enhanced context
-            combined_parts = [title, content] + extra_fields
-            combined_text = '\n'.join(part for part in combined_parts if part).strip()
-            texts.append(combined_text)
+        # Extract text content for embedding using unified method
+        texts = [self._prepare_document_text(doc) for doc in documents]
         
         # Generate embeddings
         embeddings = self.model.encode(texts)
@@ -129,20 +212,17 @@ class SemanticSearch:
             results = []
             print(f"🔍 Top similarity scores for '{query}':")
             
-            # Show more results for analysis but filter by threshold
-            for i, idx in enumerate(sorted_indices[:min(top_k * 2, len(sorted_indices))]):
-                similarity_score = similarities[idx]
-                document = stored_documents[idx]
+            # Create document-score pairs and apply filtering
+            doc_score_pairs = [(stored_documents[idx], similarities[idx]) 
+                             for idx in sorted_indices]
+            
+            # Show top results for analysis
+            for i, (document, similarity_score) in enumerate(doc_score_pairs[:min(top_k * 2, len(doc_score_pairs))]):
                 title = document.get('title', 'No title')
-                
                 print(f"   {i+1}. {title[:60]}... - Score: {similarity_score:.4f}")
-                
-                # Apply threshold and collect results
-                if similarity_score >= self.similarity_threshold and len(results) < top_k:
-                    results.append((document, float(similarity_score)))
-                elif len(results) < 2 and i < 5:  # Ensure at least 2 results from top 5 if available
-                    results.append((document, float(similarity_score)))
-                    print(f"      ↳ Included despite low score ({similarity_score:.4f}) for minimum results")
+            
+            # Apply threshold filtering
+            results = self._filter_by_threshold(doc_score_pairs, top_k)
             
             print(f"📊 Threshold: {self.similarity_threshold}, Selected {len(results)} results")
             return results
@@ -235,36 +315,9 @@ class SemanticSearch:
         if not documents:
             return [], []
         
-        # Extract text content for embedding
-        texts = []
-        for doc in documents:
-            # Create comprehensive text for better matching
-            text_parts = []
-            
-            if 'title' in doc:
-                text_parts.append(f"Title: {doc['title']}")
-            if 'content' in doc:
-                text_parts.append(f"Content: {doc['content']}")
-            if 'summary' in doc:
-                text_parts.append(f"Summary: {doc['summary']}")
-            if 'description' in doc:
-                text_parts.append(f"Description: {doc['description']}")
-                
-            texts.append(' '.join(text_parts))
-        
         try:
-            # Generate embeddings for documents and query
-            document_embeddings = self.model.encode(texts)
-            query_embedding = self.model.encode([query])
-            
-            # Calculate cosine similarities
-            similarities = cosine_similarity(query_embedding, document_embeddings)[0]
-            
-            # Create list of (document, score) pairs
-            doc_score_pairs = list(zip(documents, similarities))
-            
-            # Sort by similarity score (descending)
-            doc_score_pairs.sort(key=lambda x: x[1], reverse=True)
+            # Calculate similarities using unified method
+            doc_score_pairs = self._calculate_similarities(query, documents)
             
             # Filter by threshold and return top_k
             filtered_pairs = [(doc, score) for doc, score in doc_score_pairs 

@@ -93,7 +93,6 @@
     },
     "MNHT": {
       "keywords": [
-        "amd",
         "hi-tech",
         "model n hi-tech"
       ],
@@ -116,7 +115,6 @@
     },
     "MNLS": {
       "keywords": [
-        "novartis",
         "life sciences",
         "model n life sciences"
       ],
@@ -137,10 +135,6 @@
         "support_org": "Product Support"
       }
     }
-  },
-  "customer_mappings": {
-    "amd": "MNHT",
-    "novartis": "MNLS"
   },
   "default_category": "MNHT"
 }
