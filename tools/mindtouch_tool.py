@@ -293,14 +293,24 @@ class MindTouchTool:
             customer_context = f" | {self.customer_org_info.get('organization', 'Unknown')}" if self.customer_email else ""
             print(f"🔍 MindTouch LLM search: '{query}' (Role: {self.user_role}{customer_context})")
             
-            # Use async function in sync context
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
+            # Use async function in sync context, but handle case where loop is already running
             try:
-                response_text = loop.run_until_complete(self.get_llm_response(query))
-            finally:
-                loop.close()
+                # Check if we're already in an async context
+                loop = asyncio.get_running_loop()
+                # If we get here, we're in an async context, so we need to use asyncio.run_coroutine_threadsafe
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, self.get_llm_response(query))
+                    response_text = future.result()
+            except RuntimeError:
+                # No event loop running, we can create our own
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                try:
+                    response_text = loop.run_until_complete(self.get_llm_response(query))
+                finally:
+                    loop.close()
             
             # Check if LLM response indicates no relevant information found
             no_answer_indicators = [

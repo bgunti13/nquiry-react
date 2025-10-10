@@ -1,5 +1,5 @@
 from pymongo import MongoClient
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 class ChatHistoryManager:
     def __init__(self, uri="mongodb://localhost:27017/", db_name="Nquiry", collection_name="Users"):
@@ -7,15 +7,30 @@ class ChatHistoryManager:
         self.db = self.client[db_name]
         self.collection = self.db[collection_name]
 
-    def add_message(self, user_id, role, message):
+    def get_ist_time(self):
+        """Get current time in IST (Indian Standard Time)"""
+        # Get current UTC time and add IST offset (5 hours 30 minutes)
+        utc_now = datetime.utcnow()
+        ist_offset = timedelta(hours=5, minutes=30)
+        ist_time = utc_now + ist_offset
+        # Return as naive datetime (without timezone info) so frontend treats it correctly
+        return ist_time
+
+    def add_message(self, user_id, role, message, session_id=None):
         """Add a message to the user's chat history."""
+        message_data = {
+            "role": role,
+            "message": message,
+            "timestamp": self.get_ist_time()
+        }
+        
+        # Add session_id if provided (for conversation grouping)
+        if session_id:
+            message_data["session_id"] = session_id
+            
         self.collection.update_one(
             {"user_id": user_id},
-            {"$push": {"messages": {
-                "role": role,
-                "message": message,
-                "timestamp": datetime.utcnow()
-            }}},
+            {"$push": {"messages": message_data}},
             upsert=True
         )
 

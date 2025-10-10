@@ -48,7 +48,7 @@ class IntelligentQueryProcessor:
     LangGraph-based intelligent query processor using custom REST API tools
     """
 
-    def __init__(self, streamlit_mode=False):
+    def __init__(self, customer_email=None, streamlit_mode=False):
         # Initialize basic components
         self.semantic_search = SemanticSearch()
         self.response_formatter = ResponseFormatter()
@@ -57,11 +57,17 @@ class IntelligentQueryProcessor:
         self.streamlit_mode = streamlit_mode
 
         # Get customer email upfront for all queries (required for customer identification)
-        if not streamlit_mode:  # Skip interactive prompt in Streamlit
+        if customer_email:
+            # Use provided email (for API/web server mode)
+            print(f"🎯 Using provided customer email: {customer_email}")
+        elif not streamlit_mode:  # Skip interactive prompt in Streamlit
             print("🔐 Customer Authentication Required")
             print("=" * 40)
-        print("💡 Please provide your email for customer identification and role-based access")
-        customer_email = MindTouchTool.get_customer_email_from_input()
+            print("💡 Please provide your email for customer identification and role-based access")
+            customer_email = MindTouchTool.get_customer_email_from_input()
+        else:
+            # Streamlit mode - email should be provided via other means
+            customer_email = "demo@example.com"  # Fallback
 
         # Initialize all tools
         self.jira_tool = JiraTool()
@@ -116,14 +122,9 @@ class IntelligentQueryProcessor:
 
         def should_create_ticket_or_format(state) -> str:
             """Decide whether to create ticket or format response"""
-            search_results = state.get('search_results', [])
-
-            if not search_results:
-                print("🎫 No results found anywhere - creating ticket")
-                return "create_ticket"
-            else:
-                print("📝 Results found - formatting response")
-                return "format_response"
+            # Always format response first - the formatter will decide about ticket options
+            print("📝 Formatting comprehensive response with search results")
+            return "format_response"
 
         # Define edges for simplified sequential flow
         workflow.add_edge(START, "search_jira")
@@ -141,13 +142,11 @@ class IntelligentQueryProcessor:
             "search_mindtouch", 
             should_create_ticket_or_format,
             {
-                "create_ticket": "create_ticket",
                 "format_response": "format_response"
             }
         )
         
         workflow.add_edge("format_response", END)
-        workflow.add_edge("create_ticket", END)
 
         return workflow.compile()
 
@@ -358,6 +357,13 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
             search_results = state.get('search_results', [])
             query = state.get('query', '')
             context = state.get('context', '')
+
+            # Handle case where no search results were found
+            if not search_results:
+                print("⚠️  No search results found in JIRA or MindTouch")
+                state['formatted_response'] = f"I searched through JIRA tickets and documentation but couldn't find specific information related to your query: **{query}**\n\n❓ Since I wasn't able to find relevant information, would you like me to create a support ticket so our technical team can assist you directly?"
+                state['ticket_creation_suggested'] = True
+                return state
 
             # Determine the source based on state or results
             source = state.get('last_search_source', 'MULTI')

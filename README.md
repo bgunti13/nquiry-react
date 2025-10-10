@@ -27,7 +27,304 @@ An AI-powered query processing system that automatically routes user queries to 
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
-   cd nquiry
+   # nQuiry - React + FastAPI Migration
+
+This project contains the migrated version of the Streamlit nQuiry chatbot, now built with React frontend and FastAPI backend.
+
+## 🏗️ Architecture Overview
+
+### **Frontend (React)**
+- **Framework**: React 18 with Vite
+- **Styling**: Tailwind CSS
+- **Components**: Modular chat interface, sidebar, forms
+- **Features**: Voice input, chat history, ticket creation
+- **Port**: `http://localhost:3000`
+
+### **Backend (FastAPI)**
+- **Framework**: FastAPI with uvicorn
+- **API**: RESTful endpoints for chat, users, tickets
+- **Storage**: In-memory (demo) - easily extensible to MongoDB
+- **Features**: Chat processing, user management, ticket creation
+- **Port**: `http://localhost:8000`
+
+## 🚀 Quick Start
+
+### 1. Setup Backend (FastAPI)
+
+```bash
+# Navigate to backend directory
+cd backend
+
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# Windows:
+venv\Scripts\activate
+# macOS/Linux:
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Set up environment variables
+copy .env.example .env
+# Edit .env file with your configuration
+
+# Run the backend server
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 2. Setup Frontend (React)
+
+```bash
+# Open new terminal and navigate to frontend directory
+cd frontend
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+```
+
+### 3. Access the Application
+
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:8000
+- **API Documentation**: http://localhost:8000/docs
+
+## 🔌 How React and FastAPI Connect
+
+### **Proxy Configuration**
+The React development server is configured to proxy API requests to the FastAPI backend:
+
+```javascript
+// vite.config.js
+export default defineConfig({
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      }
+    }
+  }
+})
+```
+
+### **API Service**
+The React app uses axios to communicate with the backend:
+
+```javascript
+// src/services/api.js
+const API_BASE_URL = 'http://localhost:8000/api'
+
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  headers: { 'Content-Type': 'application/json' }
+})
+```
+
+### **CORS Configuration**
+FastAPI is configured to accept requests from the React development server:
+
+```python
+# app/main.py
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+## 📡 API Endpoints
+
+### **Chat Endpoints**
+- `POST /api/chat` - Send message to chatbot
+- `GET /api/chat/history/{user_id}` - Get chat history
+- `POST /api/chat/initialize` - Initialize processor
+- `DELETE /api/chat/history/{user_id}` - Clear history
+
+### **User Endpoints**
+- `GET /api/users` - Get all organizations
+- `GET /api/users/{user_id}` - Get specific user
+
+### **Ticket Endpoints**
+- `POST /api/tickets/create` - Create support ticket
+- `GET /api/tickets/{ticket_id}` - Get ticket details
+- `GET /api/tickets` - List tickets
+
+## 🧩 Component Structure
+
+### **React Components**
+```
+src/
+├── components/
+│   ├── chat/
+│   │   ├── ChatContainer.jsx     # Main chat display
+│   │   ├── ChatMessage.jsx       # Individual message
+│   │   └── ChatInput.jsx         # Input form with voice
+│   ├── sidebar/
+│   │   └── Sidebar.jsx           # User selection & history
+│   └── forms/
+│       └── TicketForm.jsx        # Support ticket creation
+├── hooks/
+│   ├── useChat.js                # Chat state management
+│   └── useVoice.js               # Voice input/output
+├── services/
+│   ├── api.js                    # Axios configuration
+│   └── chatService.js            # Chat API calls
+└── pages/
+    └── ChatPage.jsx              # Main application page
+```
+
+## 🎨 Features Migrated from Streamlit
+
+✅ **Chat Interface**
+- Real-time messaging
+- User/bot message styling
+- Typing indicators
+- Message timestamps
+
+✅ **Voice Input**
+- Speech-to-text (Web Speech API)
+- Text-to-speech
+- Recording indicators
+
+✅ **User Management**
+- Organization selection
+- User context preservation
+- Session management
+
+✅ **Chat History**
+- Conversation persistence
+- History navigation
+- Conversation threads
+
+✅ **Ticket Creation**
+- Support ticket forms
+- Priority/category selection
+- Escalation options
+
+✅ **Responsive Design**
+- Modern Tailwind CSS styling
+- Mobile-friendly layout
+- Smooth animations
+
+## 🔧 Development Tips
+
+### **Running Both Servers**
+You need both servers running simultaneously:
+
+1. **Terminal 1** (Backend):
+```bash
+cd backend
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+2. **Terminal 2** (Frontend):
+```bash
+cd frontend
+npm run dev
+```
+
+### **Making Changes**
+- **Frontend changes**: Auto-reload with Vite
+- **Backend changes**: Auto-reload with uvicorn `--reload` flag
+- **API changes**: Check http://localhost:8000/docs for updated documentation
+
+### **Debugging**
+- **Frontend**: Browser DevTools + React DevTools
+- **Backend**: FastAPI automatic interactive docs at `/docs`
+- **Network**: Check Network tab for API request/response
+
+## 🚀 Production Deployment
+
+### **Frontend (React)**
+```bash
+cd frontend
+npm run build
+# Deploy dist/ folder to your hosting service
+```
+
+### **Backend (FastAPI)**
+```bash
+cd backend
+# Use gunicorn for production
+pip install gunicorn
+gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker
+```
+
+### **Environment Variables**
+Update `.env` for production:
+- Set proper `SECRET_KEY`
+- Configure database connections
+- Update CORS origins
+- Add authentication if needed
+
+## 🔄 Migration Benefits
+
+### **From Streamlit to React + FastAPI:**
+
+✅ **Better Performance**
+- Faster loading and interactions
+- Optimized API calls
+- Better state management
+
+✅ **Enhanced UX**
+- Modern, responsive design
+- Smooth animations
+- Better mobile experience
+
+✅ **Scalability**
+- Separate frontend/backend deployment
+- API can serve multiple clients
+- Better caching strategies
+
+✅ **Development Experience**
+- Hot module replacement
+- Better debugging tools
+- Component-based architecture
+
+✅ **Production Ready**
+- Proper API documentation
+- Better error handling
+- Scalable architecture
+
+## 🛠️ Next Steps
+
+1. **Database Integration**: Replace in-memory storage with MongoDB
+2. **Authentication**: Add user authentication and authorization
+3. **Real AI Integration**: Connect to OpenAI or other AI services
+4. **Testing**: Add unit and integration tests
+5. **Monitoring**: Add logging and performance monitoring
+6. **Deployment**: Set up CI/CD pipelines
+
+## 🆘 Troubleshooting
+
+### **Common Issues:**
+
+**CORS Errors:**
+- Ensure FastAPI CORS is configured correctly
+- Check React proxy configuration
+
+**API Connection Failed:**
+- Verify both servers are running
+- Check ports 3000 (React) and 8000 (FastAPI)
+- Ensure no firewall blocking
+
+**Module Import Errors:**
+- Ensure virtual environment is activated (backend)
+- Run `npm install` (frontend)
+- Check Python/Node versions
+
+**Voice Input Not Working:**
+- Requires HTTPS in production
+- Check browser speech recognition support
+- Ensure microphone permissions
    ```
 
 2. **Install dependencies**:

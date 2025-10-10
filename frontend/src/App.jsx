@@ -1,0 +1,588 @@
+import React, { useState, useEffect, useCallback } from 'react'
+import Sidebar from './components/sidebar/Sidebar'
+import ChatContainer from './components/chat/ChatContainer'
+import ChatInputFixed from './components/chat/ChatInputFixed'
+import Header from './components/Header'
+import AuthenticationForm from './components/AuthenticationForm'
+import TicketForm from './components/forms/TicketForm'
+import { MESSAGE_TYPES } from './utils/constants'
+import { useVoice } from './hooks/useVoice'
+
+const App = () => {
+  // Voice functionality
+  const { speak, stopSpeaking, isSpeaking } = useVoice()
+  
+  // Authentication state
+  const [isInitialized, setIsInitialized] = useState(false)
+  const [currentUser, setCurrentUser] = useState(null)
+  const [customerEmail, setCustomerEmail] = useState('')
+  const [sessionId, setSessionId] = useState(null)
+  
+  // Chat state
+  const [messages, setMessages] = useState([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [conversationEnded, setConversationEnded] = useState(false)
+  
+  // UI state
+  const [showTicketForm, setShowTicketForm] = useState(false)
+  const [ticketQuery, setTicketQuery] = useState('')
+  const [isEscalation, setIsEscalation] = useState(false)
+  const [audioEnabled, setAudioEnabled] = useState(false)
+  
+  // Chat history state
+  const [chatHistory, setChatHistory] = useState([])
+  const [sidebarRefreshTrigger, setSidebarRefreshTrigger] = useState(0)
+  
+  // Download state
+  const [downloadableTicket, setDownloadableTicket] = useState(null)
+  const [showDownloads, setShowDownloads] = useState(false)
+
+  // Generate session ID utility
+  const generateSessionId = () => {
+    return Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9)
+  }
+
+  // Utility function to get current time in IST
+  const getISTTimestamp = () => {
+    return new Date().toLocaleTimeString('en-IN', { 
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit', 
+      minute: '2-digit' 
+    })
+  }
+
+  // Function to reload current conversation from backend
+  const reloadCurrentConversation = async () => {
+    if (!currentUser?.email || !sessionId) return
+    
+    try {
+      // Get latest conversation for current session
+      const response = await fetch(`http://localhost:8000/api/chat/history/${currentUser.email}`)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.history && Array.isArray(data.history)) {
+          // Filter messages for current session and convert to UI format
+          const sessionMessages = data.history
+            .filter(msg => msg.session_id === sessionId)
+            .map((msg, index) => ({
+              id: Date.now() + index,
+              type: msg.role === 'user' ? MESSAGE_TYPES.USER : MESSAGE_TYPES.BOT,
+              content: msg.message,
+              timestamp: new Date(msg.timestamp).toLocaleTimeString('en-IN', { 
+                timeZone: 'Asia/Kolkata',
+                hour: '2-digit', 
+                minute: '2-digit' 
+              })
+            }))
+          
+          setMessages(sessionMessages)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to reload conversation:', error)
+    }
+  }
+
+  // Utility function to get current date/time in IST
+  const getISTDateTime = () => {
+    return new Date().toLocaleString('en-IN', { 
+      timeZone: 'Asia/Kolkata'
+    })
+  }
+
+  const handleInitialize = async (email) => {
+    try {
+      setIsLoading(true)
+      
+      // IMPORTANT: Clear all previous user data when switching users
+      setMessages([])
+      setChatHistory([])
+      setError(null)
+      setConversationEnded(false)
+      setShowTicketForm(false)
+      setTicketQuery('')
+      setIsEscalation(false)
+      setDownloadableTicket(null)
+      setShowDownloads(false)
+      
+      // Set new user info
+      setCustomerEmail(email)
+      
+      // Call backend initialization API using chatService
+      const { chatService } = await import('./services/chatService')
+      const response = await chatService.initializeProcessor(email)
+      
+      console.log('Backend initialization response:', response)
+      
+      setIsInitialized(true)
+      // Store the full organization data from the backend
+      setCurrentUser(response.organization_data || { email: email })
+      
+      // Generate new session ID for this login session
+      const newSessionId = generateSessionId()
+      setSessionId(newSessionId)
+      console.log('🆔 Generated new session ID:', newSessionId)
+      
+      // Trigger sidebar refresh for new user
+      setSidebarRefreshTrigger(prev => prev + 1)
+      
+    } catch (error) {
+      console.error('Failed to initialize backend:', error)
+      setError(`Failed to initialize: ${error.message}`)
+      
+      // For now, still allow local initialization even if backend fails
+      setIsInitialized(true)
+      setCurrentUser({ email: email })
+      
+      // Generate session ID even on fallback
+      const newSessionId = generateSessionId()
+      setSessionId(newSessionId)
+      console.log('🆔 Generated new session ID (fallback):', newSessionId)
+      
+      // Still trigger sidebar refresh even on fallback
+      setSidebarRefreshTrigger(prev => prev + 1)
+      
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleLogout = () => {
+    // Reset all state to initial values
+    setIsInitialized(false)
+    setCurrentUser(null)
+    setCustomerEmail('')
+    setSessionId(null) // Clear session ID on logout
+    setMessages([])
+    setChatHistory([])
+    setIsLoading(false)
+    setError(null)
+    setConversationEnded(false)
+    setShowTicketForm(false)
+    setTicketQuery('')
+    setIsEscalation(false)
+    setAudioEnabled(false)
+    setDownloadableTicket(null)
+    setShowDownloads(false)
+    setSidebarRefreshTrigger(prev => prev + 1)
+    console.log('User logged out - all state cleared')
+  }
+
+  const handleAudioToggle = useCallback((enabled) => {
+    setAudioEnabled(enabled)
+    if (!enabled && stopSpeaking) {
+      // Stop any ongoing speech when audio is disabled
+      stopSpeaking()
+    }
+  }, [stopSpeaking])
+
+  // Handle text-to-speech for new bot messages
+  useEffect(() => {
+    if (!audioEnabled || !speak || messages.length === 0) return
+
+    const lastMessage = messages[messages.length - 1]
+    
+    // Only speak bot messages
+    if (lastMessage.type === MESSAGE_TYPES.BOT && lastMessage.content) {
+      // Clean up content for speech (remove markdown and formatting)
+      const cleanContent = lastMessage.content
+        .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markdown
+        .replace(/\*(.*?)\*/g, '$1')     // Remove italic markdown
+        .replace(/`(.*?)`/g, '$1')       // Remove code markdown
+        .replace(/#{1,6}\s?/g, '')       // Remove headers
+        .replace(/\n/g, ' ')             // Replace newlines with spaces
+        .replace(/🎫|📊|✅|❌|⚠️|🔍|📚|💡/g, '') // Remove emojis
+        .trim()
+      
+      if (cleanContent) {
+        speak(cleanContent)
+      }
+    }
+  }, [messages, audioEnabled, speak])
+
+  const handleSendMessage = async (message) => {
+    if (!message.trim()) return
+
+    // Check if this is a ticket creation confirmation
+    const isTicketRequest = /^(yes|y|create ticket|create|ticket|yes please|sure|okay|ok)$/i.test(message.trim())
+    
+    // If the last bot message offered ticket creation and user says yes, show ticket form
+    if (isTicketRequest && messages.length > 0) {
+      const lastBotMessage = [...messages].reverse().find(msg => msg.type === MESSAGE_TYPES.BOT)
+      if (lastBotMessage && (
+        lastBotMessage.content.includes('would you like me to create a support ticket') ||
+        lastBotMessage.content.includes('Would you like me to create a ticket') ||
+        lastBotMessage.content.includes('create a support ticket for you')
+      )) {
+        // User confirmed ticket creation, show the form
+        setShowTicketForm(true)
+        
+        // Add user message to chat
+        const userMessage = {
+          id: Date.now(),
+          type: MESSAGE_TYPES.USER,
+          content: message,
+          timestamp: getISTTimestamp()
+        }
+        setMessages(prev => [...prev, userMessage])
+        
+        return // Don't send to backend, just show the form
+      }
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      // Call chat API using chatService (don't add user message locally, let the refresh handle it)
+      const { chatService } = await import('./services/chatService')
+      const data = await chatService.sendMessage(
+        message, 
+        customerEmail || 'demo_user',
+        currentUser, // Pass the full organization data
+        sessionId // Pass the session ID
+      )
+      
+      // Check if backend wants to show ticket form
+      if (data.show_ticket_form) {
+        console.log('Backend requested ticket form to be shown')
+        setShowTicketForm(true)
+        setTicketQuery(message)
+        setIsEscalation(false) // Default to non-escalation
+      }
+
+      // Store ticket-related state for potential future use, but DON'T auto-show the form
+      if (data.response && (
+        data.response.includes('would you like me to create a support ticket') || 
+        data.response.includes('Would you like me to create a ticket') ||
+        data.response.includes('create a support ticket for you')
+      )) {
+        // Store the query for potential ticket creation, but don't show form yet
+        setTicketQuery(message)
+        setIsEscalation(data.response.includes('escalate'))
+        // Note: We do NOT call setShowTicketForm(true) here anymore
+      }
+
+      // Refresh sidebar and reload current conversation
+      setSidebarRefreshTrigger(prev => prev + 1)
+      
+      // Reload current conversation from backend to get latest messages
+      await reloadCurrentConversation()
+
+    } catch (error) {
+      console.error('Failed to send message:', error)
+      setError(error.message)
+      
+      // Add error message
+      const errorMessage = {
+        id: Date.now() + 1,
+        type: MESSAGE_TYPES.BOT,
+        content: `Sorry, I encountered an error: ${error.message}`,
+        timestamp: getISTTimestamp()
+      }
+
+      setMessages(prev => [...prev, errorMessage])
+      
+      // Error message speech will be handled by useEffect
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleTicketCreated = (response) => {
+    // Extract ticket data from the API response
+    const ticketData = response.ticket_data || response;
+    
+    // Add ticket creation confirmation to chat
+    const confirmationMessage = {
+      id: Date.now(),
+      type: MESSAGE_TYPES.BOT,
+      content: `🎫 **Ticket Created Successfully!**
+
+**Ticket ID:** ${ticketData.ticket_id || 'N/A'}
+**JIRA Ticket:** ${ticketData.jira_ticket_id || 'N/A'}
+**Category:** ${ticketData.category || 'N/A'}
+**Customer:** ${ticketData.customer || 'N/A'}
+
+✅ Your support ticket has been created and will be processed by our support team.
+📄 Complete ticket details have been generated.
+
+**📥 Downloads Available:**
+- Download ticket details
+- Download chat transcript
+
+Use the download buttons that will appear below.`,
+      timestamp: getISTTimestamp()
+    }
+
+    setMessages(prev => [...prev, confirmationMessage])
+    setShowTicketForm(false)
+    setTicketQuery('')
+    setIsEscalation(false)
+    setSidebarRefreshTrigger(prev => prev + 1)
+    
+    // Store download data
+    setDownloadableTicket(response)
+    setShowDownloads(true)
+  }
+
+  const handleTicketCancelled = () => {
+    setShowTicketForm(false)
+    setTicketQuery('')
+    setIsEscalation(false)
+  }
+
+  const downloadTicketDetails = () => {
+    if (!downloadableTicket) return
+    
+    const content = downloadableTicket.downloadable_content || 'No ticket content available'
+    const filename = downloadableTicket.filename || 'ticket_details.txt'
+    
+    const blob = new Blob([content], { type: 'text/plain' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
+  }
+
+  const downloadChatTranscript = async () => {
+    try {
+      // Generate transcript from current conversation messages
+      if (!messages || messages.length === 0) {
+        setError('No conversation to download')
+        return
+      }
+      
+      // Generate transcript content
+      const transcriptLines = []
+      transcriptLines.push("NQUIRY CHAT TRANSCRIPT")
+      transcriptLines.push("=".repeat(50))
+      transcriptLines.push("")
+      transcriptLines.push(`Generated: ${getISTDateTime()}`)
+      transcriptLines.push(`Customer: ${customerEmail || 'demo_user'}`)
+      transcriptLines.push(`Session Messages: ${messages.length}`)
+      transcriptLines.push("")
+      transcriptLines.push("CONVERSATION LOG:")
+      transcriptLines.push("-".repeat(30))
+      transcriptLines.push("")
+      
+      // Add each message from current conversation
+      messages.forEach((message, index) => {
+        const role = message.type === 'user' ? 'USER' : 'NQUIRY'
+        const icon = message.type === 'user' ? '👤' : '🤖'
+        const timestamp = message.timestamp || ''
+        
+        transcriptLines.push(`[${timestamp}] ${icon} ${role}:`)
+        
+        // Clean content of markdown for plain text
+        let content = message.content || ''
+        content = content.replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold
+        content = content.replace(/\*([^*]+)\*/g, '$1') // Remove italic
+        content = content.replace(/#{1,6}\s?/g, '') // Remove headers
+        content = content.replace(/`([^`]+)`/g, '$1') // Remove code formatting
+        
+        // Split long responses into multiple lines for readability
+        const lines = content.split('\n')
+        lines.forEach(line => {
+          if (line.trim()) {
+            transcriptLines.push(`    ${line.trim()}`)
+          }
+        })
+        
+        transcriptLines.push("") // Empty line between messages
+      })
+      
+      const transcriptContent = transcriptLines.join('\n')
+      const filename = `chat_transcript_${customerEmail?.replace('@', '_at_') || 'demo_user'}_${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.txt`
+      
+      // Download the file
+      const blob = new Blob([transcriptContent], { type: 'text/plain' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      
+    } catch (error) {
+      console.error('Error downloading chat transcript:', error)
+      setError('Failed to download chat transcript')
+    }
+  }
+
+  const clearDownloads = () => {
+    setDownloadableTicket(null)
+    setShowDownloads(false)
+  }
+
+  const handleNewConversation = () => {
+    setMessages([])
+    setConversationEnded(false)
+    setShowTicketForm(false)
+    setTicketQuery('')
+    setIsEscalation(false)
+    setError(null)
+  }
+
+  const handleLoadConversation = (conversation) => {
+    // Remove any potential duplicates by checking message content and timestamp
+    const uniqueMessages = []
+    const seenMessages = new Set()
+    
+    conversation.messages?.forEach(msg => {
+      // Create a unique key based on content and type (ignore exact timestamp due to small differences)
+      const key = `${msg.type}-${msg.content.substring(0, 100)}`
+      
+      if (!seenMessages.has(key)) {
+        seenMessages.add(key)
+        uniqueMessages.push(msg)
+      }
+    })
+    
+    setMessages(uniqueMessages)
+    setConversationEnded(false)
+    setShowTicketForm(false)
+    setError(null)
+  }
+
+  // Show authentication form if not initialized
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-green-50">
+        <Header />
+        <AuthenticationForm 
+          onInitialize={handleInitialize}
+          isLoading={isLoading}
+          error={error}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Sidebar */}
+      <Sidebar
+        currentUser={currentUser}
+        onNewConversation={handleNewConversation}
+        onLoadConversation={handleLoadConversation}
+        refreshTrigger={sidebarRefreshTrigger}
+        audioEnabled={audioEnabled}
+        onAudioToggle={handleAudioToggle}
+      />
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col">
+        <Header user={currentUser} onLogout={handleLogout} />
+        
+        {/* Chat Container */}
+        <ChatContainer 
+          messages={messages}
+          isLoading={isLoading}
+        />
+
+        {/* Floating Stop Speech Button */}
+        {isSpeaking && audioEnabled && (
+          <div className="fixed bottom-24 right-6 z-40">
+            <button
+              onClick={stopSpeaking}
+              className="bg-red-500 text-white p-3 rounded-full shadow-lg hover:bg-red-600 transition-colors flex items-center space-x-2"
+              title="Stop reading aloud"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" />
+              </svg>
+              <span className="text-sm font-medium">Stop</span>
+            </button>
+          </div>
+        )}
+
+        {/* Ticket Form */}
+        {showTicketForm && (
+          <TicketForm
+            query={ticketQuery}
+            isEscalation={isEscalation}
+            customerEmail={customerEmail}
+            chatHistory={messages}
+            onTicketCreated={handleTicketCreated}
+            onCancel={handleTicketCancelled}
+          />
+        )}
+
+        {/* Downloads Section */}
+        {showDownloads && downloadableTicket && (
+          <div className="p-6 bg-green-50 border-t border-green-200">
+            <div className="max-w-4xl mx-auto">
+              <h3 className="text-lg font-semibold text-green-800 mb-4">📥 Downloads</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <button
+                  onClick={downloadTicketDetails}
+                  className="flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg transition-colors duration-200"
+                >
+                  <span>📄</span>
+                  <span>Download Ticket Details</span>
+                </button>
+                
+                <button
+                  onClick={downloadChatTranscript}
+                  className="flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg transition-colors duration-200"
+                >
+                  <span>💬</span>
+                  <span>Download Chat Transcript</span>
+                </button>
+                
+                <button
+                  onClick={clearDownloads}
+                  className="flex items-center justify-center space-x-2 bg-gray-600 hover:bg-gray-700 text-white px-4 py-3 rounded-lg transition-colors duration-200"
+                >
+                  <span>✅</span>
+                  <span>Clear Downloads</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Chat Input */}
+        {!conversationEnded && (
+          <ChatInputFixed
+            onSendMessage={handleSendMessage}
+            isLoading={isLoading}
+            disabled={isLoading}
+            audioEnabled={audioEnabled}
+          />
+        )}
+
+        {/* Conversation Ended Message */}
+        {conversationEnded && messages.length > 0 && (
+          <div className="p-6 bg-blue-50 border-t border-blue-200">
+            <div className="max-w-4xl mx-auto text-center">
+              <p className="text-blue-700">
+                💬 This conversation has ended. Use the sidebar to start a new conversation if you have more questions!
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Error Display */}
+        {error && (
+          <div className="p-4 bg-red-50 border-t border-red-200">
+            <div className="max-w-4xl mx-auto">
+              <p className="text-red-700">❌ {error}</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default App

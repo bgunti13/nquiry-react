@@ -506,6 +506,55 @@ class TicketCreator:
         
         return ticket_data
     
+    def get_recent_tickets(self, organization: str, limit: int = 10) -> list:
+        """
+        Get recent tickets for an organization from JIRA
+        
+        Args:
+            organization: Organization name (e.g., 'Novartis', 'AMD')
+            limit: Number of recent tickets to return
+            
+        Returns:
+            List of recent tickets
+        """
+        try:
+            print(f"\n🔍 Searching recent tickets for organization: {organization}")
+            
+            # Use the JIRA tool to get real recent tickets
+            from tools.jira_tool import JiraTool
+            jira_tool = JiraTool()
+            
+            # Get recent tickets using the JIRA tool
+            recent_tickets = jira_tool.get_recent_tickets_by_organization(organization, limit)
+            
+            if recent_tickets:
+                print(f"✅ Found {len(recent_tickets)} real JIRA tickets for {organization}")
+                # Transform the JIRA response to match the expected format
+                transformed_tickets = []
+                for ticket in recent_tickets:
+                    transformed_ticket = {
+                        'key': ticket.get('key', 'N/A'),
+                        'summary': ticket.get('summary', 'No summary available'),
+                        'status': ticket.get('status', 'Unknown'),
+                        'priority': ticket.get('priority', 'Medium'),
+                        'created': ticket.get('created', 'Unknown'),
+                        'project': ticket.get('project', 'Unknown'),
+                        'assignee': ticket.get('assignee', 'Unassigned'),
+                        'updated': ticket.get('updated', 'Unknown')
+                    }
+                    transformed_tickets.append(transformed_ticket)
+                
+                return transformed_tickets
+            else:
+                print(f"⚠️ No recent tickets found for organization: {organization}")
+                return []
+                
+        except Exception as e:
+            print(f"❌ Error getting recent tickets for {organization}: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
     def create_jira_ticket(self, ticket_data: Dict) -> Optional[str]:
         """
         Create a JIRA ticket using MCP Atlassian server

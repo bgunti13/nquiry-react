@@ -3269,7 +3269,7 @@ def main():
     
     # Customer email input (only if not initialized)
     if not st.session_state.nquiry_processor or st.session_state.nquiry_processor == "placeholder":
-        st.markdown("### 🔐 Customer Authentication")
+        st.markdown("### 🔐 Customer Authentication!!")
         
         st.markdown("**Please enter your email for customer identification:**", unsafe_allow_html=True)
         customer_email = st.text_input(

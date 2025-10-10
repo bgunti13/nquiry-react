@@ -275,6 +275,14 @@ Focus on relevance and precision rather than completeness."""
 
 CRITICAL: When multiple search results are provided, focus primarily on the most relevant and highest-scoring documents. Do NOT try to summarize all documents - instead, extract only the information that directly answers the user's specific question. If a document doesn't contain relevant information for the exact query, ignore it completely.
 
+**FORMATTING REQUIREMENTS:**
+- DO NOT include any raw search result references like "(Result 1)", "(Result 2)" in your response
+- DO NOT include bullet points that start with raw search data like "- New Salesforce accounts do not sync..."  
+- DO NOT include phrases like "Based on the provided search results" or "The key issue appears to be"
+- DO NOT show internal search result formatting or citations
+- Provide ONLY a clean, comprehensive response that directly answers the user's question
+- Write as if you are explaining the solution directly, not analyzing search results
+
 Response:"""
         
         return base_prompt
