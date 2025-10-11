@@ -76,7 +76,29 @@ class TicketCreator:
         auto_fields = self.get_populated_fields_for_category(category)
         for field, value in auto_fields.items():
             if field not in ticket_data:
-                ticket_data[field] = value
+                # Resolve dynamic values
+                if isinstance(value, str):
+                    if 'based on description' in value.lower():
+                        ticket_data[field] = f"Support Request: {query[:80]}{'...' if len(query) > 80 else ''}"
+                    elif 'based on user domain' in value.lower():
+                        domain = customer_email.split('@')[-1].lower() if customer_email and '@' in customer_email else 'unknown.com'
+                        ticket_data[field] = domain.replace('.com', '')
+                    elif 'based on customer organization' in value.lower():
+                        # Get the actual organization name from customer role manager
+                        customer_mapping = self.customer_role_manager.get_customer_mapping(customer_email.split('@')[-1] if customer_email and '@' in customer_email else 'unknown.com')
+                        ticket_data[field] = customer_mapping.get('organization', customer)
+                    elif 'based on customer sheet mapping' in value.lower():
+                        # Determine MNHT or MNLS based on customer sheet mapping
+                        customer_mapping = self.customer_role_manager.get_customer_mapping(customer_email.split('@')[-1] if customer_email and '@' in customer_email else 'unknown.com')
+                        sheet = customer_mapping.get('sheet', 'HT')
+                        if sheet.upper() == 'LS':
+                            ticket_data[field] = 'MNLS'
+                        else:  # Default to HT/MNHT
+                            ticket_data[field] = 'MNHT'
+                    else:
+                        ticket_data[field] = value
+                else:
+                    ticket_data[field] = value
         
         # Save ticket to file
         output_dir = "ticket_simulation_output"
@@ -198,7 +220,29 @@ class TicketCreator:
         populated_fields = self.get_populated_fields_for_category(category)
         for field, value in populated_fields.items():
             if field not in ticket_data:  # Don't override form data
-                ticket_data[field] = value
+                # Resolve dynamic values
+                if isinstance(value, str):
+                    if 'based on description' in value.lower():
+                        ticket_data[field] = f"Support Request: {query[:80]}{'...' if len(query) > 80 else ''}"
+                    elif 'based on user domain' in value.lower():
+                        domain = customer_email.split('@')[-1].lower() if customer_email and '@' in customer_email else 'unknown.com'
+                        ticket_data[field] = domain.replace('.com', '')
+                    elif 'based on customer organization' in value.lower():
+                        # Get the actual organization name from customer role manager
+                        customer_mapping = self.customer_role_manager.get_customer_mapping(customer_email.split('@')[-1] if customer_email and '@' in customer_email else 'unknown.com')
+                        ticket_data[field] = customer_mapping.get('organization', customer)
+                    elif 'based on customer sheet mapping' in value.lower():
+                        # Determine MNHT or MNLS based on customer sheet mapping
+                        customer_mapping = self.customer_role_manager.get_customer_mapping(customer_email.split('@')[-1] if customer_email and '@' in customer_email else 'unknown.com')
+                        sheet = customer_mapping.get('sheet', 'HT')
+                        if sheet.upper() == 'LS':
+                            ticket_data[field] = 'MNLS'
+                        else:  # Default to HT/MNHT
+                            ticket_data[field] = 'MNHT'
+                    else:
+                        ticket_data[field] = value
+                else:
+                    ticket_data[field] = value
         
         # Save ticket to file
         self.save_ticket_to_file(ticket_data)
@@ -410,7 +454,31 @@ class TicketCreator:
         
         # Add auto-populated fields for the category
         auto_fields = self.get_populated_fields_for_category(category)
-        final_ticket_data.update(auto_fields)
+        for field, value in auto_fields.items():
+            if field not in final_ticket_data:
+                # Resolve dynamic values
+                if isinstance(value, str):
+                    if 'based on description' in value.lower():
+                        final_ticket_data[field] = f"Support Request: {query[:80]}{'...' if len(query) > 80 else ''}"
+                    elif 'based on user domain' in value.lower():
+                        domain = customer_email.split('@')[-1].lower() if customer_email and '@' in customer_email else 'unknown.com'
+                        final_ticket_data[field] = domain.replace('.com', '')
+                    elif 'based on customer organization' in value.lower():
+                        # Get the actual organization name from customer role manager
+                        customer_mapping = self.customer_role_manager.get_customer_mapping(customer_email.split('@')[-1] if customer_email and '@' in customer_email else 'unknown.com')
+                        final_ticket_data[field] = customer_mapping.get('organization', customer)
+                    elif 'based on customer sheet mapping' in value.lower():
+                        # Determine MNHT or MNLS based on customer sheet mapping
+                        customer_mapping = self.customer_role_manager.get_customer_mapping(customer_email.split('@')[-1] if customer_email and '@' in customer_email else 'unknown.com')
+                        sheet = customer_mapping.get('sheet', 'HT')
+                        if sheet.upper() == 'LS':
+                            final_ticket_data[field] = 'MNLS'
+                        else:  # Default to HT/MNHT
+                            final_ticket_data[field] = 'MNHT'
+                    else:
+                        final_ticket_data[field] = value
+                else:
+                    final_ticket_data[field] = value
         
         # Save ticket to file
         os.makedirs('ticket_simulation_output', exist_ok=True)
@@ -713,7 +781,29 @@ Priority: {ticket_data.get('priority', 'N/A')}
         auto_fields = self.get_populated_fields_for_category(category)
         for field, default_value in auto_fields.items():
             if field not in ticket_data:  # Only add if not already set
-                ticket_data[field] = default_value
+                # Resolve dynamic values
+                if isinstance(default_value, str):
+                    if 'based on description' in default_value.lower():
+                        ticket_data[field] = f"Support Request: {query[:80]}{'...' if len(query) > 80 else ''}"
+                    elif 'based on user domain' in default_value.lower():
+                        domain = customer_email.split('@')[-1].lower() if customer_email and '@' in customer_email else 'unknown.com'
+                        ticket_data[field] = domain.replace('.com', '')
+                    elif 'based on customer organization' in default_value.lower():
+                        # Get the actual organization name from customer role manager
+                        customer_mapping = self.customer_role_manager.get_customer_mapping(customer_email.split('@')[-1] if customer_email and '@' in customer_email else 'unknown.com')
+                        ticket_data[field] = customer_mapping.get('organization', customer)
+                    elif 'based on customer sheet mapping' in default_value.lower():
+                        # Determine MNHT or MNLS based on customer sheet mapping
+                        customer_mapping = self.customer_role_manager.get_customer_mapping(customer_email.split('@')[-1] if customer_email and '@' in customer_email else 'unknown.com')
+                        sheet = customer_mapping.get('sheet', 'HT')
+                        if sheet.upper() == 'LS':
+                            ticket_data[field] = 'MNLS'
+                        else:  # Default to HT/MNHT
+                            ticket_data[field] = 'MNHT'
+                    else:
+                        ticket_data[field] = default_value
+                else:
+                    ticket_data[field] = default_value
         
         # Generate summary if not provided
         if 'summary' not in ticket_data:

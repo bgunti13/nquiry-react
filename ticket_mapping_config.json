@@ -21,7 +21,7 @@
         "work_type": "Task",
         "summary": "Generated based on description",
         "priority": "Medium",
-        "customer": "Based on user domain",
+        "customer": "Based on customer organization",
         "cloud_operations_request_type": "production",
         "cloud_operations_request_date": "Alert from NOC to COPS"
       },
@@ -61,10 +61,10 @@
         "work_type": "Task",
         "summary": "Based on description",
         "priority": "Medium",
-        "customer": "Based on user domain",
-        "support_projects": "MNHT or MNLS based on customer",
+        "customer": "Based on customer organization",
+        "support_projects": "Based on customer sheet mapping",
         "cloud_environmental_list": "production",
-        "cloud_operations_request_type": "Change Request – DB",
+        "cloud_operations_request_type": "Change Request DB",
         "cloud_operations_request_date": "Optional"
       }
     },
@@ -78,7 +78,16 @@
         "jira permission",
         "jira user access",
         "access to jira",
-        "jira account access"
+        "jira account access",
+        "grant access to jira",
+        "provide access to jira",
+        "remove access to jira",
+        "revoke access to jira",
+        "jira access request",
+        "access request jira",
+        "jira user account",
+        "create jira account",
+        "delete jira account"
       ],
       "required_fields": {
         "description": "Description of the access request"
@@ -88,7 +97,7 @@
         "work_type": "Access Request",
         "summary": "Generated based on description",
         "priority": "Medium",
-        "customer": "Based on user domain"
+        "customer": "Based on customer organization"
       }
     },
     "MNHT": {

@@ -204,8 +204,14 @@ const App = () => {
   const handleSendMessage = async (message) => {
     if (!message.trim()) return
 
-    // Check if this is a ticket creation confirmation
-    const isTicketRequest = /^(yes|y|create ticket|create|ticket|yes please|sure|okay|ok)$/i.test(message.trim())
+    // Clear downloads section when sending a new message (unless it's a ticket confirmation)
+    const isTicketRequest = /^(yes|y|yeah|yep|yes create|create ticket|create|ticket|yes please|yes pls|sure|okay|ok|confirm|proceed|go ahead|do it)$/i.test(message.trim())
+    
+    if (!isTicketRequest) {
+      // Clear downloads when user sends a new query
+      setShowDownloads(false)
+      setDownloadableTicket(null)
+    }
     
     // If the last bot message offered ticket creation and user says yes, show ticket form
     if (isTicketRequest && messages.length > 0) {

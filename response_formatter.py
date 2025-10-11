@@ -641,8 +641,24 @@ Would you like to:
                     populated_fields[field] = summary
                 elif 'based on user domain' in value.lower():
                     populated_fields[field] = customer_domain
+                elif 'based on customer organization' in value.lower():
+                    # Get the actual organization name from customer role manager
+                    from customer_role_manager import CustomerRoleMappingManager
+                    customer_manager = CustomerRoleMappingManager()
+                    customer_mapping = customer_manager.get_customer_mapping(f"{customer_domain}.com")
+                    populated_fields[field] = customer_mapping.get('organization', customer_domain.upper())
+                elif 'based on customer sheet mapping' in value.lower():
+                    # Determine MNHT or MNLS based on customer sheet mapping
+                    from customer_role_manager import CustomerRoleMappingManager
+                    customer_manager = CustomerRoleMappingManager()
+                    customer_mapping = customer_manager.get_customer_mapping(f"{customer_domain}.com")
+                    sheet = customer_mapping.get('sheet', 'HT')
+                    if sheet.upper() == 'LS':
+                        populated_fields[field] = 'MNLS'
+                    else:  # Default to HT/MNHT
+                        populated_fields[field] = 'MNHT'
                 elif category in ['COPS'] and field == 'support_projects':
-                    # Determine MNHT or MNLS based on customer
+                    # Determine MNHT or MNLS based on customer (legacy fallback)
                     if customer_domain == 'amd':
                         populated_fields[field] = 'MNHT'
                     elif customer_domain == 'novartis':
