@@ -69,7 +69,7 @@ const ChatInput = ({ onSendMessage, isLoading, disabled = false }) => {
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder={disabled ? "Please initialize nQuiry first..." : "Type your question here..."}
+              placeholder={disabled ? "Please initialize Nquiry first..." : "Type your question here..."}
               disabled={disabled || isLoading}
               rows={1}
               className="input-field resize-none pr-12 min-h-[3rem] max-h-32"

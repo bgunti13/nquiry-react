@@ -134,7 +134,7 @@ const ChatInputFixed = ({
                 onChange={(e) => setMessage(e.target.value)}
                 placeholder={
                   disabled 
-                    ? "Please initialize nQuiry first..." 
+                    ? "Please initialize Nquiry first..." 
                     : isRecording 
                       ? "🎤 Listening..." 
                       : "Ask anything or @mention a Space"

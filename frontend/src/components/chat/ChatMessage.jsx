@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { Copy, CheckCircle, User, Bot } from 'lucide-react'
+import FeedbackButtons from '../feedback/FeedbackButtons'
 
-const ChatMessage = ({ message, isBot = false }) => {
+const ChatMessage = ({ message, isBot = false, userId = '', sessionId = '', onFeedbackSubmitted }) => {
   const { content, timestamp } = message
   const [copied, setCopied] = useState(false)
 
@@ -107,11 +108,22 @@ const ChatMessage = ({ message, isBot = false }) => {
               )}
             </div>
 
-            {/* Status indicator for bot messages */}
+            {/* Status indicator and feedback for bot messages */}
             {isBot && (
-              <div className="flex items-center mt-2 pt-2 border-t border-gray-200">
-                <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
-                <span className="text-xs text-gray-500">Response generated</span>
+              <div className="mt-2 pt-2 border-t border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
+                    <span className="text-xs text-gray-500">Response generated</span>
+                  </div>
+                  <FeedbackButtons
+                    messageId={message.id}
+                    messageContent={content}
+                    userId={userId}
+                    sessionId={sessionId}
+                    onFeedbackSubmitted={onFeedbackSubmitted}
+                  />
+                </div>
               </div>
             )}
           </div>

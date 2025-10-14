@@ -300,14 +300,15 @@ class SemanticSearch:
         
         print(f"Cleared vector store for {source}")
     
-    def search_documents(self, documents: List[Dict], query: str, top_k: int = 5) -> Tuple[List[Dict], List[float]]:
+    def search_documents(self, documents: List[Dict], query: str, top_k: int = 5, learning_manager=None) -> Tuple[List[Dict], List[float]]:
         """
-        Search through a specific set of documents using semantic similarity
+        Search through a specific set of documents using semantic similarity with adaptive learning
         
         Args:
             documents: List of documents to search through
             query: Search query
             top_k: Number of top results to return
+            learning_manager: Optional learning manager for adaptive parameters
             
         Returns:
             Tuple of (ranked_documents, similarity_scores)
@@ -316,12 +317,27 @@ class SemanticSearch:
             return [], []
         
         try:
+            # 🧠 Get adaptive parameters from learning manager if available
+            adaptive_threshold = self.similarity_threshold
+            if learning_manager:
+                try:
+                    adaptive_params = learning_manager.get_adaptive_search_parameters()
+                    adaptive_threshold = adaptive_params.get('similarity_threshold', self.similarity_threshold)
+                    print(f"🎯 Using adaptive similarity threshold: {adaptive_threshold}")
+                except Exception as e:
+                    print(f"⚠️ Learning parameters unavailable, using defaults: {e}")
+            
             # Calculate similarities using unified method
             doc_score_pairs = self._calculate_similarities(query, documents)
             
-            # Filter by threshold and return top_k
+            # 🧠 Apply adaptive threshold instead of fixed threshold
             filtered_pairs = [(doc, score) for doc, score in doc_score_pairs 
-                            if score >= self.similarity_threshold][:top_k]
+                            if score >= adaptive_threshold][:top_k]
+            
+            # Fallback to ensure minimum results if adaptive threshold too strict
+            if not filtered_pairs and doc_score_pairs:
+                print(f"🔄 Adaptive threshold too strict, falling back to top results")
+                filtered_pairs = doc_score_pairs[:min(2, top_k)]
             
             if filtered_pairs:
                 ranked_docs, scores = zip(*filtered_pairs)

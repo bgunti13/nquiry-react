@@ -7,6 +7,7 @@ import json
 import os
 from typing import List, Dict, Tuple, Optional
 from dotenv import load_dotenv
+from datetime import datetime
 from config import AWS_REGION, BEDROCK_MODEL
 
 load_dotenv()
@@ -637,7 +638,10 @@ Would you like to:
         # Replace dynamic values
         for field, value in populated_fields.items():
             if isinstance(value, str):
-                if 'based on description' in value.lower():
+                if value.lower() == 'current_date':
+                    # Replace with current date in YYYY-MM-DD format
+                    populated_fields[field] = datetime.now().strftime('%Y-%m-%d')
+                elif 'based on description' in value.lower():
                     populated_fields[field] = summary
                 elif 'based on user domain' in value.lower():
                     populated_fields[field] = customer_domain

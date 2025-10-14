@@ -144,7 +144,7 @@ const Sidebar = ({
               }
               
               // Start a new conversation
-              const firstUserMessage = msg.role === 'user' ? msg.message : 'Conversation';
+              const firstUserMessage = (msg.role === 'user' && !msg.message.startsWith('[FEEDBACK]')) ? msg.message : 'Conversation';
               currentConversation = {
                 id: conversationId++,
                 title: firstUserMessage.substring(0, 50) + (firstUserMessage.length > 50 ? '...' : ''),
@@ -169,6 +169,11 @@ const Sidebar = ({
                 minute: '2-digit' 
               });
             
+            // Skip feedback messages - don't display them in chat history
+            if (msg.message && msg.message.startsWith('[FEEDBACK]')) {
+              continue;
+            }
+            
             // Add message to current conversation
             const messageType = msg.role === 'user' ? MESSAGE_TYPES.USER : MESSAGE_TYPES.BOT;
             currentConversation.messages.push({
@@ -185,8 +190,8 @@ const Sidebar = ({
             // Always update conversation timestamp to the latest message timestamp
             currentConversation.timestamp = msg.timestamp || new Date().toISOString();
             
-            // Update conversation title to be the first user message in this conversation
-            if (msg.role === 'user' && currentConversation.messages.filter(m => m.type === MESSAGE_TYPES.USER).length === 1) {
+            // Update conversation title to be the first user message in this conversation (excluding feedback)
+            if (msg.role === 'user' && !msg.message.startsWith('[FEEDBACK]') && currentConversation.messages.filter(m => m.type === MESSAGE_TYPES.USER).length === 1) {
               currentConversation.title = msg.message.substring(0, 50) + (msg.message.length > 50 ? '...' : '');
             }
           }
@@ -196,8 +201,8 @@ const Sidebar = ({
             conversations.push(currentConversation);
           }
           
-          // Reverse to show most recent conversations first
-          const sortedConversations = conversations.reverse();
+          // Reverse to show most recent conversations first and limit to 5
+          const sortedConversations = conversations.reverse().slice(0, 5);
           
           console.log('🔄 Setting conversations for user', currentUser.email, ':', sortedConversations);
           setConversations(sortedConversations);
@@ -268,19 +273,21 @@ const Sidebar = ({
       if (response.ok) {
         const data = await response.json()
         console.log('🎫 Recent tickets response:', data);
-        setRecentTickets(data.tickets || [])
-        console.log(`✅ Loaded ${data.tickets?.length || 0} real tickets for ${organization}`);
+        // Limit to 5 most recent tickets
+        const recentTicketsLimited = (data.tickets || []).slice(0, 5)
+        setRecentTickets(recentTicketsLimited)
+        console.log(`✅ Loaded ${recentTicketsLimited.length} real tickets for ${organization}`);
       } else {
         console.log('⚠️ API response not ok, using fallback mock data');
-        // Fallback to mock data based on organization
-        const mockTickets = getMockTicketsForOrganization(organization)
+        // Fallback to mock data based on organization (limit to 5)
+        const mockTickets = getMockTicketsForOrganization(organization).slice(0, 5)
         setRecentTickets(mockTickets)
       }
     } catch (error) {
       console.error('❌ Failed to load recent tickets:', error)
-      // Fallback to mock data
+      // Fallback to mock data (limit to 5)
       const organization = getOrganizationFromEmail(currentUser.email)
-      const mockTickets = getMockTicketsForOrganization(organization)
+      const mockTickets = getMockTicketsForOrganization(organization).slice(0, 5)
       setRecentTickets(mockTickets)
     }
   }
@@ -486,7 +493,7 @@ const Sidebar = ({
         <div className="flex bg-gray-100 rounded-lg p-1">
           <button
             onClick={() => setActiveTab('conversations')}
-            className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+            className={`flex-1 px-3 py-2 text-xs font-medium rounded-md transition-colors ${
               activeTab === 'conversations'
                 ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
@@ -497,7 +504,7 @@ const Sidebar = ({
           </button>
           <button
             onClick={() => setActiveTab('tickets')}
-            className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+            className={`flex-1 px-3 py-2 text-xs font-medium rounded-md transition-colors ${
               activeTab === 'tickets'
                 ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'

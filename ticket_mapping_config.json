@@ -8,22 +8,22 @@
         "reservation", 
         "decommission",
         "custom task",
-        "reset ro user db password",
+        "reset rodb user password",
         "monitoring",
         "database password",
-        "reset password"
+        "reset password",
+        "password expired"
       ],
       "required_fields": {
         "description": "Description of the issue"
       },
       "populated_fields": {
-        "project": "MNLS, MNHT",
+        "project": "NOC",
         "work_type": "Task",
         "summary": "Generated based on description",
         "priority": "Medium",
         "customer": "Based on customer organization",
-        "cloud_operations_request_type": "production",
-        "cloud_operations_request_date": "Alert from NOC to COPS"
+        "cloud_operations_request_type": "production"
       },
       "work_type_options": {
         "Task": "Use this value for scheduling a request or requesting logs and other assistance.",
@@ -51,7 +51,8 @@
         "provision",
         "refresh job",
         "batch job",
-        "data refresh"
+        "data refresh",
+        "database timeout errors"
       ],
       "required_fields": {
         "description": "Description of the issue"
@@ -65,7 +66,7 @@
         "support_projects": "Based on customer sheet mapping",
         "cloud_environmental_list": "production",
         "cloud_operations_request_type": "Change Request DB",
-        "cloud_operations_request_date": "Optional"
+        "cloud_operations_request_date": "current_date"
       }
     },
     "CSP": {

@@ -12,6 +12,7 @@ import os
 # Import your existing intelligent system
 from main import IntelligentQueryProcessor
 from chat_history_manager import ChatHistoryManager
+from continuous_learning_manager import get_learning_manager
 
 app = FastAPI(title="nQuiry API", version="1.0.0")
 
@@ -61,18 +62,47 @@ except Exception as e:
 
 
 def is_greeting_message(message: str) -> tuple:
-    """Use LLM to detect if message is a greeting and generate appropriate response"""
-    # First, simple fallback check for common greetings
+    """Detect if message is a greeting using pattern matching (no LLM needed)"""
     message_lower = message.lower().strip()
+    
+    # Expanded list of greeting patterns
     simple_greetings = [
-        'hi', 'hello', 'hey', 'hiya', 'howdy', 'greetings', 'good morning', 
-        'good afternoon', 'good evening', 'hey there', 'hi there', 'hello there'
+        'hi', 'hello', 'hey', 'hiya', 'howdy', 'greetings', 
+        'good morning', 'good afternoon', 'good evening', 'good day',
+        'hey there', 'hi there', 'hello there', 'morning', 'afternoon', 'evening',
+        'sup', 'what\'s up', 'whats up', 'yo', 'helo', 'hllo'
+    ]
+    
+    # Also check for greeting-like patterns
+    greeting_patterns = [
+        'hi nquiry', 'hello nquiry', 'hey nquiry',
+        'hi there', 'hello everyone', 'good to see you'
     ]
     
     # Check if message is exactly a simple greeting (or with punctuation)
     clean_message = message_lower.rstrip('!.,?').strip()
+    
+    # Check exact matches
     if clean_message in simple_greetings:
-        greeting_response = """Hello! 👋 Welcome to nQuiry, your intelligent query and support assistant. 
+        return True, get_greeting_response()
+    
+    # Check pattern matches
+    for pattern in greeting_patterns:
+        if pattern in clean_message:
+            return True, get_greeting_response()
+    
+    # Check if message starts with greeting words
+    greeting_starters = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening']
+    for starter in greeting_starters:
+        if clean_message.startswith(starter) and len(clean_message) <= len(starter) + 10:
+            return True, get_greeting_response()
+    
+    return False, ""
+
+
+def get_greeting_response():
+    """Generate a consistent greeting response"""
+    return """Hello! 👋 Welcome to Nquiry, your intelligent query and support assistant. 
 
 I'm here to help you with:
 • Technical questions and troubleshooting
@@ -81,92 +111,6 @@ I'm here to help you with:
 • Support ticket creation when needed
 
 Feel free to ask me about any issues you're experiencing or questions about our systems. How can I assist you today?"""
-        return True, greeting_response
-    
-    # If not a simple greeting, try LLM detection for more complex cases
-    try:
-        import boto3
-        import json
-        from config import AWS_REGION, BEDROCK_MODEL
-        
-        # Create Bedrock client
-        session = boto3.Session(
-            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-            region_name=AWS_REGION
-        )
-        bedrock_client = session.client('bedrock-runtime')
-        
-        prompt = f"""
-You are an AI assistant for nQuiry, an intelligent query and support system. 
-
-Analyze this user message: "{message}"
-
-Task 1: Determine if this is a greeting message (like "hi", "hello", "good morning", "hey there", etc.)
-
-Task 2: If it IS a greeting, generate a friendly, professional welcome response that:
-- Welcomes them to nQuiry
-- Briefly explains that you're here to help with technical questions and support
-- Encourages them to ask about any issues or questions they have
-- Keeps the tone warm but professional
-
-Task 3: If it's NOT a greeting, just respond with "NOT_GREETING"
-
-Format your response as JSON:
-{{
-  "is_greeting": true/false,
-  "response": "your generated greeting response or NOT_GREETING"
-}}
-
-Examples of greetings: hi, hello, hey, good morning, good afternoon, howdy, greetings, etc.
-Examples of non-greetings: "how to configure SFDC", "I have an issue with sync", "what is Model N", etc.
-"""
-
-        body = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 300,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        }
-
-        response = bedrock_client.invoke_model(
-            modelId=BEDROCK_MODEL,
-            body=json.dumps(body),
-            contentType='application/json'
-        )
-
-        response_body = json.loads(response['body'].read())
-        llm_response = response_body['content'][0]['text']
-        
-        # Parse JSON response
-        try:
-            parsed_response = json.loads(llm_response)
-            is_greeting = parsed_response.get('is_greeting', False)
-            greeting_response = parsed_response.get('response', '')
-            
-            if is_greeting and greeting_response != "NOT_GREETING":
-                return True, greeting_response
-            else:
-                return False, ""
-                
-        except json.JSONDecodeError:
-            # Fallback: try to extract from text response
-            if 'true' in llm_response.lower() and 'greeting' in llm_response.lower():
-                # Extract response text (basic fallback)
-                lines = llm_response.split('\n')
-                for line in lines:
-                    if 'response' in line.lower() and len(line.strip()) > 20:
-                        return True, line.split(':', 1)[1].strip().strip('"')
-            return False, ""
-            
-    except Exception as e:
-        print(f"⚠️ Error in LLM greeting detection: {e}")
-        # Final fallback - return False to continue with normal processing
-        return False, ""
 
 
 def is_satisfaction_response(message: str) -> tuple:
@@ -1118,12 +1062,41 @@ async def preview_ticket_category(request: dict):
         categories = ticket_creator.ticket_config.get("ticket_categories", {})
         category_config = categories.get(category, {})
         
+        # Process populated fields to resolve dynamic values
+        populated_fields = category_config.get("populated_fields", {}).copy()
+        for field, value in populated_fields.items():
+            if isinstance(value, str):
+                if value.lower() == 'current_date':
+                    # Replace with current date in YYYY-MM-DD format
+                    populated_fields[field] = get_ist_time().strftime('%Y-%m-%d')
+                elif 'based on customer organization' in value.lower():
+                    # Get the actual organization name from customer role manager
+                    from customer_role_manager import CustomerRoleMappingManager
+                    customer_manager = CustomerRoleMappingManager()
+                    domain = customer_email.split('@')[-1] if customer_email and '@' in customer_email else 'unknown.com'
+                    customer_mapping = customer_manager.get_customer_mapping(domain)
+                    populated_fields[field] = customer_mapping.get('organization', customer)
+                elif 'based on customer sheet mapping' in value.lower():
+                    # Determine MNHT or MNLS based on customer sheet mapping
+                    from customer_role_manager import CustomerRoleMappingManager
+                    customer_manager = CustomerRoleMappingManager()
+                    domain = customer_email.split('@')[-1] if customer_email and '@' in customer_email else 'unknown.com'
+                    customer_mapping = customer_manager.get_customer_mapping(domain)
+                    sheet = customer_mapping.get('sheet', 'HT')
+                    if sheet.upper() == 'LS':
+                        populated_fields[field] = 'MNLS'
+                    else:  # Default to HT/MNHT
+                        populated_fields[field] = 'MNHT'
+                elif 'based on description' in value.lower():
+                    # Generate summary based on query
+                    populated_fields[field] = f"Support Request: {query[:80]}{'...' if len(query) > 80 else ''}"
+        
         return {
             "status": "success",
             "category": category,
             "customer": customer,
             "required_fields": category_config.get("required_fields", {}),
-            "populated_fields": category_config.get("populated_fields", {}),
+            "populated_fields": populated_fields,
             "keywords": category_config.get("keywords", [])
         }
         
@@ -1290,6 +1263,102 @@ async def get_recent_tickets(organization: str):
         
         # Return empty list on error
         return {"tickets": []}
+
+# Feedback and Continuous Learning endpoints
+@app.post("/api/feedback/collect")
+async def collect_feedback(request: dict):
+    """Collect user feedback for continuous learning"""
+    try:
+        user_id = request.get("user_id", "")
+        response_content = request.get("response_content", "")
+        feedback_type = request.get("feedback_type", "")  # positive, negative, excellent, needs_improvement
+        feedback_category = request.get("feedback_category", "")  # thumbs_up, thumbs_down, star, improve
+        session_id = request.get("session_id", "")
+        
+        print(f"🎯 Collecting feedback from user: {user_id}")
+        print(f"   - Feedback type: {feedback_type}")
+        print(f"   - Category: {feedback_category}")
+        
+        # Store feedback in chat history manager if available
+        if chat_history_manager:
+            # Add feedback as a special message type
+            feedback_message = f"[FEEDBACK] {feedback_type.upper()} ({feedback_category})"
+            chat_history_manager.add_message(user_id, "feedback", feedback_message, session_id)
+        
+        # 🧠 REAL LEARNING: Use the learning manager to store and analyze feedback
+        learning_manager = get_learning_manager()
+        learning_result = learning_manager.store_feedback(
+            user_id=user_id,
+            response_content=response_content,
+            feedback_type=feedback_type,
+            feedback_category=feedback_category,
+            session_id=session_id
+        )
+        
+        print(f"🧠 Learning analysis completed: {learning_result}")
+        
+        return {
+            "status": "success",
+            "message": "Feedback collected and learning updated",
+            "learning_result": learning_result
+        }
+        
+    except Exception as e:
+        print(f"❌ Error collecting feedback: {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to collect feedback: {str(e)}"
+        }
+
+@app.get("/api/learning/status")
+async def get_learning_status(user_id: str = ""):
+    """Get continuous learning status and analytics"""
+    try:
+        # 🧠 REAL LEARNING: Get actual analytics from learning manager
+        learning_manager = get_learning_manager()
+        learning_status = learning_manager.get_learning_status(user_id if user_id else None)
+        
+        print(f"📊 Learning status retrieved: {learning_status['status']} - Score: {learning_status['score']:.1f}%")
+        
+        return {
+            "status": "success",
+            "learning_status": learning_status
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting learning status: {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to get learning status: {str(e)}"
+        }
+
+@app.get("/api/learning/insights")
+async def get_learning_insights():
+    """Get detailed learning insights and recommendations"""
+    try:
+        learning_manager = get_learning_manager()
+        
+        # Get comprehensive learning analysis
+        insights = learning_manager.get_learning_status()
+        adaptive_params = learning_manager.get_adaptive_search_parameters()
+        
+        return {
+            "status": "success",
+            "insights": insights,
+            "adaptive_parameters": adaptive_params,
+            "system_health": {
+                "learning_enabled": True,
+                "database_connected": True,
+                "analysis_engine": "active"
+            }
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting learning insights: {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to get learning insights: {str(e)}"
+        }
 
 if __name__ == "__main__":
     import uvicorn

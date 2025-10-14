@@ -222,7 +222,10 @@ class TicketCreator:
             if field not in ticket_data:  # Don't override form data
                 # Resolve dynamic values
                 if isinstance(value, str):
-                    if 'based on description' in value.lower():
+                    if value.lower() == 'current_date':
+                        # Replace with current date in YYYY-MM-DD format
+                        ticket_data[field] = datetime.now().strftime('%Y-%m-%d')
+                    elif 'based on description' in value.lower():
                         ticket_data[field] = f"Support Request: {query[:80]}{'...' if len(query) > 80 else ''}"
                     elif 'based on user domain' in value.lower():
                         domain = customer_email.split('@')[-1].lower() if customer_email and '@' in customer_email else 'unknown.com'

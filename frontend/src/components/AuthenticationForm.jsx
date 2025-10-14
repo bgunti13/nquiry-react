@@ -25,7 +25,7 @@ const AuthenticationForm = ({ onInitialize, isLoading, error }) => {
             <span className="text-2xl text-white font-bold">N</span>
           </div>
           <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome to nQuiry
+            Welcome to Nquiry
           </h2>
           <p className="text-gray-600 mb-8">
             Your intelligent query assistant
@@ -38,9 +38,6 @@ const AuthenticationForm = ({ onInitialize, isLoading, error }) => {
             <h3 className="text-xl font-semibold text-gray-900 mb-2">
               🔐 Customer Authentication
             </h3>
-            <p className="text-gray-600 text-sm">
-              Please enter your email for customer identification and role-based access to JIRA and MindTouch.
-            </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -60,7 +57,7 @@ const AuthenticationForm = ({ onInitialize, isLoading, error }) => {
                 required
               />
               <p className="text-xs text-gray-500 mt-2">
-                Press Enter after typing your email to initialize nQuiry
+                Press enter after typing your email to initialize Nquiry
               </p>
             </div>
 
@@ -81,7 +78,7 @@ const AuthenticationForm = ({ onInitialize, isLoading, error }) => {
                   Initializing nQuiry...
                 </>
               ) : (
-                'Initialize nQuiry'
+                'Initialize Nquiry'
               )}
             </button>
           </form>

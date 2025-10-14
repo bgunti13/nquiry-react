@@ -24,6 +24,7 @@ from ticket_creator import TicketCreator
 from tools.mindtouch_tool import MindTouchTool
 from tools.jira_tool import JiraTool
 from chat_history_manager import ChatHistoryManager
+from continuous_learning_manager import get_learning_manager
 
 # Configuration
 FALLBACK_SEARCH_ENABLED = False  # Disabled - relying on new flow
@@ -55,6 +56,10 @@ class IntelligentQueryProcessor:
         self.ticket_creator = TicketCreator()
         self.chat_history_manager = ChatHistoryManager()
         self.streamlit_mode = streamlit_mode
+        
+        # 🧠 Initialize continuous learning manager
+        self.learning_manager = get_learning_manager()
+        print("🧠 Continuous Learning Manager integrated")
 
         # Get customer email upfront for all queries (required for customer identification)
         if customer_email:
@@ -186,7 +191,8 @@ class IntelligentQueryProcessor:
                 
                 # Rank documents with semantic search
                 print("� Ranking JIRA results with semantic search...")
-                ranked_docs, scores = self.semantic_search.search_documents(documents, query)
+                ranked_docs, scores = self.semantic_search.search_documents(
+                    documents, query, learning_manager=self.learning_manager)
                 
                 # Combine ranked_docs and scores into a list of tuples
                 state['search_results'] = list(zip(ranked_docs, scores))

@@ -12,11 +12,20 @@ const App = () => {
   // Voice functionality
   const { speak, stopSpeaking, isSpeaking } = useVoice()
   
-  // Authentication state
-  const [isInitialized, setIsInitialized] = useState(false)
-  const [currentUser, setCurrentUser] = useState(null)
-  const [customerEmail, setCustomerEmail] = useState('')
-  const [sessionId, setSessionId] = useState(null)
+  // Authentication state - initialize from localStorage if available
+  const [isInitialized, setIsInitialized] = useState(() => {
+    return localStorage.getItem('nquiry_isInitialized') === 'true'
+  })
+  const [currentUser, setCurrentUser] = useState(() => {
+    const saved = localStorage.getItem('nquiry_currentUser')
+    return saved ? JSON.parse(saved) : null
+  })
+  const [customerEmail, setCustomerEmail] = useState(() => {
+    return localStorage.getItem('nquiry_customerEmail') || ''
+  })
+  const [sessionId, setSessionId] = useState(() => {
+    return localStorage.getItem('nquiry_sessionId') || null
+  })
   
   // Chat state
   const [messages, setMessages] = useState([])
@@ -62,9 +71,9 @@ const App = () => {
       if (response.ok) {
         const data = await response.json()
         if (data.history && Array.isArray(data.history)) {
-          // Filter messages for current session and convert to UI format
+          // Filter messages for current session and convert to UI format (exclude feedback messages)
           const sessionMessages = data.history
-            .filter(msg => msg.session_id === sessionId)
+            .filter(msg => msg.session_id === sessionId && !msg.message?.startsWith('[FEEDBACK]'))
             .map((msg, index) => ({
               id: Date.now() + index,
               type: msg.role === 'user' ? MESSAGE_TYPES.USER : MESSAGE_TYPES.BOT,
@@ -166,7 +175,14 @@ const App = () => {
     setDownloadableTicket(null)
     setShowDownloads(false)
     setSidebarRefreshTrigger(prev => prev + 1)
-    console.log('User logged out - all state cleared')
+    
+    // Clear localStorage
+    localStorage.removeItem('nquiry_isInitialized')
+    localStorage.removeItem('nquiry_currentUser')
+    localStorage.removeItem('nquiry_customerEmail')
+    localStorage.removeItem('nquiry_sessionId')
+    
+    console.log('User logged out - all state and localStorage cleared')
   }
 
   const handleAudioToggle = useCallback((enabled) => {
@@ -176,6 +192,46 @@ const App = () => {
       stopSpeaking()
     }
   }, [stopSpeaking])
+
+  // Handle feedback submission for continuous learning
+  const handleFeedbackSubmitted = (feedbackType, feedbackCategory) => {
+    console.log('Feedback submitted:', { feedbackType, feedbackCategory })
+    // You can show a toast notification or update UI state here
+    // The feedback has already been sent to the backend by FeedbackButtons component
+  }
+
+  // Persist authentication state to localStorage
+  useEffect(() => {
+    localStorage.setItem('nquiry_isInitialized', isInitialized.toString())
+  }, [isInitialized])
+
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('nquiry_currentUser', JSON.stringify(currentUser))
+    } else {
+      localStorage.removeItem('nquiry_currentUser')
+    }
+  }, [currentUser])
+
+  useEffect(() => {
+    localStorage.setItem('nquiry_customerEmail', customerEmail)
+  }, [customerEmail])
+
+  useEffect(() => {
+    if (sessionId) {
+      localStorage.setItem('nquiry_sessionId', sessionId)
+    } else {
+      localStorage.removeItem('nquiry_sessionId')
+    }
+  }, [sessionId])
+
+  // Restore conversation on page refresh if user is authenticated
+  useEffect(() => {
+    if (isInitialized && currentUser?.email && sessionId) {
+      reloadCurrentConversation()
+      setSidebarRefreshTrigger(prev => prev + 1)
+    }
+  }, []) // Run only once on mount
 
   // Handle text-to-speech for new bot messages
   useEffect(() => {
@@ -205,7 +261,7 @@ const App = () => {
     if (!message.trim()) return
 
     // Clear downloads section when sending a new message (unless it's a ticket confirmation)
-    const isTicketRequest = /^(yes|y|yeah|yep|yes create|create ticket|create|ticket|yes please|yes pls|sure|okay|ok|confirm|proceed|go ahead|do it)$/i.test(message.trim())
+    const isTicketRequest = /^(yes|y|yeah|yep|yes create|create ticket|create|ticket|yes please|yes pls|sure|okay|ok|confirm|proceed|go ahead|create support ticket|create a support ticket|do it)$/i.test(message.trim())
     
     if (!isTicketRequest) {
       // Clear downloads when user sends a new query
@@ -492,6 +548,9 @@ Use the download buttons that will appear below.`,
         <ChatContainer 
           messages={messages}
           isLoading={isLoading}
+          userId={customerEmail}
+          sessionId={sessionId}
+          onFeedbackSubmitted={handleFeedbackSubmitted}
         />
 
         {/* Floating Stop Speech Button */}

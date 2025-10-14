@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import ChatMessage from './ChatMessage'
 import { MESSAGE_TYPES } from '../../utils/constants'
 
-const ChatContainer = ({ messages, isLoading }) => {
+const ChatContainer = ({ messages, isLoading, userId, sessionId, onFeedbackSubmitted }) => {
   const messagesEndRef = useRef(null)
   const containerRef = useRef(null)
 
@@ -49,6 +49,9 @@ const ChatContainer = ({ messages, isLoading }) => {
             key={message.id || index}
             message={message}
             isBot={message.type === MESSAGE_TYPES.BOT}
+            userId={userId}
+            sessionId={sessionId}
+            onFeedbackSubmitted={onFeedbackSubmitted}
           />
         ))}
 
