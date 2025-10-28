@@ -316,7 +316,7 @@ const TicketForm = ({
         <div className="max-w-4xl mx-auto p-6">
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
-            <span className="text-gray-600">Loading ticket configuration...</span>
+            <span className="text-gray-600">Nquiry is thinking...</span>
           </div>
         </div>
       </div>

@@ -70,7 +70,7 @@ const ChatMessage = ({ message, isBot = false, userId = '', sessionId = '', onFe
                   {isBot ? <Bot className="w-4 h-4" /> : <User className="w-4 h-4" />}
                 </div>
                 <span className="text-xs font-medium text-gray-600">
-                  {isBot ? 'nQuiry Assistant' : 'You'}
+                  {isBot ? 'Nquiry Assistant' : 'You'}
                 </span>
                 {timestamp && (
                   <span className="text-xs text-gray-500">

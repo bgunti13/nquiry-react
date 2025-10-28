@@ -293,6 +293,15 @@ const App = () => {
       }
     }
 
+    // Add user message to chat immediately for better UX
+    const userMessage = {
+      id: Date.now(),
+      type: MESSAGE_TYPES.USER,
+      content: message,
+      timestamp: getISTTimestamp()
+    }
+    setMessages(prev => [...prev, userMessage])
+
     setIsLoading(true)
     setError(null)
 
@@ -306,6 +315,17 @@ const App = () => {
         sessionId // Pass the session ID
       )
       
+      // Add bot response to chat
+      if (data.response) {
+        const botMessage = {
+          id: Date.now() + 1,
+          type: MESSAGE_TYPES.BOT,
+          content: data.response,
+          timestamp: getISTTimestamp()
+        }
+        setMessages(prev => [...prev, botMessage])
+      }
+
       // Check if backend wants to show ticket form
       if (data.show_ticket_form) {
         console.log('Backend requested ticket form to be shown')
@@ -326,11 +346,8 @@ const App = () => {
         // Note: We do NOT call setShowTicketForm(true) here anymore
       }
 
-      // Refresh sidebar and reload current conversation
+      // Refresh sidebar for new conversation
       setSidebarRefreshTrigger(prev => prev + 1)
-      
-      // Reload current conversation from backend to get latest messages
-      await reloadCurrentConversation()
 
     } catch (error) {
       console.error('Failed to send message:', error)
