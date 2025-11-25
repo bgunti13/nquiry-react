@@ -2,7 +2,7 @@ import api from './api'
 
 export const chatService = {
   // Send a message to the chat API
-  sendMessage: async (message, userId = 'demo_user', organizationData = null, sessionId = null) => {
+  sendMessage: async (message, userId = 'demo_user', organizationData = null, sessionId = null, images = null) => {
     try {
       const requestData = {
         message,
@@ -14,6 +14,16 @@ export const chatService = {
       // Add session_id if provided
       if (sessionId) {
         requestData.session_id = sessionId
+      }
+      
+      // Add images if provided
+      if (images && images.length > 0) {
+        requestData.images = images.map(img => ({
+          base64: img.base64,
+          type: img.type,
+          name: img.name,
+          size: img.size
+        }))
       }
       
       const response = await api.post('/chat', requestData)

@@ -68,6 +68,16 @@ const FeedbackButtons = ({
 
   return (
     <div className="flex items-center space-x-1 mt-2 opacity-70 hover:opacity-100 transition-opacity">
+      {/* Excellent (Star) */}
+      <button
+        onClick={() => handleFeedback('excellent', 'star')}
+        disabled={isSubmitting}
+        className="p-1 rounded hover:bg-yellow-100 transition-colors disabled:opacity-50"
+        title="Excellent response"
+      >
+        <Star className="w-4 h-4 text-yellow-600" />
+      </button>
+
       {/* Thumbs Up */}
       <button
         onClick={() => handleFeedback('positive', 'thumbs_up')}
@@ -86,16 +96,6 @@ const FeedbackButtons = ({
         title="Not helpful"
       >
         <ThumbsDown className="w-4 h-4 text-red-600" />
-      </button>
-
-      {/* Excellent (Star) */}
-      <button
-        onClick={() => handleFeedback('excellent', 'star')}
-        disabled={isSubmitting}
-        className="p-1 rounded hover:bg-yellow-100 transition-colors disabled:opacity-50"
-        title="Excellent response"
-      >
-        <Star className="w-4 h-4 text-yellow-600" />
       </button>
 
       {/* Needs Improvement */}

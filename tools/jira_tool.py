@@ -130,23 +130,25 @@ class JiraTool:
             import pandas as pd
             excel_path = os.path.join(os.path.dirname(__file__), '..', 'LS-HT Customer Info.xlsx')
             
-            # Read from both HT and LS sheets
-            for sheet_name in ['HT', 'LS']:
-                try:
-                    df = pd.read_excel(excel_path, sheet_name=sheet_name)
-                    
-                    # Build mapping from this sheet
-                    for _, row in df.iterrows():
-                        customer = str(row.get('Customer', '')).strip().lower().replace(' ', '')
-                        # Try different column name variations
-                        jira_org = (str(row.get('JIRA Organisation', '')).strip() or 
-                                   str(row.get('JIRA Organization', '')).strip() or
-                                   str(row.get('JIRA Organization ', '')).strip())
-                        if customer and jira_org and jira_org != 'nan':
-                            self.customer_org_map[customer] = jira_org
-                    
-                except Exception as sheet_error:
-                    print(f"Could not load {sheet_name} sheet: {sheet_error}")
+            # Use context manager to properly close file
+            with pd.ExcelFile(excel_path, engine='openpyxl') as excel_file:
+                # Read from both HT and LS sheets
+                for sheet_name in ['HT', 'LS']:
+                    try:
+                        df = pd.read_excel(excel_file, sheet_name=sheet_name)
+                        
+                        # Build mapping from this sheet
+                        for _, row in df.iterrows():
+                            customer = str(row.get('Customer', '')).strip().lower().replace(' ', '')
+                            # Try different column name variations
+                            jira_org = (str(row.get('JIRA Organisation', '')).strip() or 
+                                       str(row.get('JIRA Organization', '')).strip() or
+                                       str(row.get('JIRA Organization ', '')).strip())
+                            if customer and jira_org and jira_org != 'nan':
+                                self.customer_org_map[customer] = jira_org
+                        
+                    except Exception as sheet_error:
+                        print(f"Could not load {sheet_name} sheet: {sheet_error}")
             
             print(f"✅ Loaded {len(self.customer_org_map)} customer mappings")
             

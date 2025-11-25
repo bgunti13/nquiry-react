@@ -1,10 +1,11 @@
 import React, { useState } from 'react'
-import { Copy, CheckCircle, User, Bot } from 'lucide-react'
+import { Copy, CheckCircle, User, Bot, Expand } from 'lucide-react'
 import FeedbackButtons from '../feedback/FeedbackButtons'
 
 const ChatMessage = ({ message, isBot = false, userId = '', sessionId = '', onFeedbackSubmitted }) => {
-  const { content, timestamp } = message
+  const { content, timestamp, images } = message
   const [copied, setCopied] = useState(false)
+  const [expandedImage, setExpandedImage] = useState(null)
 
   const formatTimestamp = (timestamp) => {
     if (!timestamp) return ''
@@ -95,6 +96,34 @@ const ChatMessage = ({ message, isBot = false, userId = '', sessionId = '', onFe
 
             {/* Message content */}
             <div className="message-content">
+              {/* Images (for user messages) */}
+              {!isBot && images && images.length > 0 && (
+                <div className="mb-3">
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    {images.slice(0, 4).map((image, index) => (
+                      <div key={index} className="relative group">
+                        <img 
+                          src={image.preview || image.base64} 
+                          alt={image.name}
+                          className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => setExpandedImage(image)}
+                        />
+                        <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-10 rounded-lg transition-all duration-200 flex items-center justify-center">
+                          <Expand className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                        <div className="absolute bottom-1 left-1 bg-black bg-opacity-50 text-white text-xs px-1 py-0.5 rounded truncate max-w-[calc(100%-8px)]">
+                          {image.name}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {images.length > 4 && (
+                    <p className="text-xs text-gray-500">+{images.length - 4} more images</p>
+                  )}
+                </div>
+              )}
+
+              {/* Text content */}
               {isBot ? (
                 <div 
                   className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
@@ -107,6 +136,26 @@ const ChatMessage = ({ message, isBot = false, userId = '', sessionId = '', onFe
                 <p className="text-sm leading-relaxed text-gray-800">{content}</p>
               )}
             </div>
+
+            {/* Image modal for expansion */}
+            {expandedImage && (
+              <div 
+                className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+                onClick={() => setExpandedImage(null)}
+              >
+                <div className="max-w-4xl max-h-full">
+                  <img 
+                    src={expandedImage.preview || expandedImage.base64}
+                    alt={expandedImage.name}
+                    className="max-w-full max-h-full object-contain"
+                  />
+                  <div className="mt-2 text-center">
+                    <p className="text-white text-sm">{expandedImage.name}</p>
+                    <p className="text-gray-300 text-xs">Click anywhere to close</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Status indicator and feedback for bot messages */}
             {isBot && (

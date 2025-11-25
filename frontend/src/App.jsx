@@ -12,9 +12,32 @@ const App = () => {
   // Voice functionality
   const { speak, stopSpeaking, isSpeaking } = useVoice()
   
-  // Authentication state - initialize from localStorage if available
+  // Session timeout configuration (in minutes) - Easy to modify
+  const SESSION_TIMEOUT = 30 // Change this value to adjust session timeout
+  const WARNING_MINUTES = 5  // Show warning when this many minutes are left
+  
+  // Check if session has expired
+  const isSessionExpired = () => {
+    const lastActivity = localStorage.getItem('nquiry_lastActivity')
+    if (!lastActivity) return true
+    
+    const timeDiff = Date.now() - parseInt(lastActivity)
+    return timeDiff > SESSION_TIMEOUT * 60 * 1000 // Convert to milliseconds
+  }
+  
+  // Authentication state - initialize from localStorage if available and not expired
   const [isInitialized, setIsInitialized] = useState(() => {
-    return localStorage.getItem('nquiry_isInitialized') === 'true'
+    const isAuth = localStorage.getItem('nquiry_isInitialized') === 'true'
+    if (isAuth && isSessionExpired()) {
+      // Session expired, clear localStorage
+      localStorage.removeItem('nquiry_isInitialized')
+      localStorage.removeItem('nquiry_currentUser')
+      localStorage.removeItem('nquiry_customerEmail')
+      localStorage.removeItem('nquiry_sessionId')
+      localStorage.removeItem('nquiry_lastActivity')
+      return false
+    }
+    return isAuth
   })
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem('nquiry_currentUser')
@@ -38,6 +61,7 @@ const App = () => {
   const [ticketQuery, setTicketQuery] = useState('')
   const [isEscalation, setIsEscalation] = useState(false)
   const [audioEnabled, setAudioEnabled] = useState(false)
+  const [sessionWarningShown, setSessionWarningShown] = useState(false)
   
   // Chat history state
   const [chatHistory, setChatHistory] = useState([])
@@ -60,6 +84,88 @@ const App = () => {
       minute: '2-digit' 
     })
   }
+
+  // Update last activity timestamp
+  const updateLastActivity = useCallback(() => {
+    localStorage.setItem('nquiry_lastActivity', Date.now().toString())
+  }, [])
+
+  // Auto logout function
+  const autoLogout = useCallback(() => {
+    console.log('Session expired - auto logging out')
+    handleLogout()
+    setError('Your session has expired due to inactivity. Please log in again.')
+  }, [])
+
+  // Check session expiry periodically
+  useEffect(() => {
+    if (!isInitialized) return
+
+    const checkSession = () => {
+      if (isSessionExpired()) {
+        autoLogout()
+        return
+      }
+
+      // Check if session is expiring soon (5 minutes left)
+      const lastActivity = localStorage.getItem('nquiry_lastActivity')
+      if (lastActivity) {
+        const timeDiff = Date.now() - parseInt(lastActivity)
+        const timeLeft = SESSION_TIMEOUT * 60 * 1000 - timeDiff
+        const minutesLeft = Math.floor(timeLeft / (60 * 1000))
+
+        // Show warning if WARNING_MINUTES or less left and warning hasn't been shown
+        if (minutesLeft <= WARNING_MINUTES && minutesLeft > 0 && !sessionWarningShown) {
+          setSessionWarningShown(true)
+          setError(`⚠️ Your session will expire in ${minutesLeft} minute(s). Please interact with the app to extend your session.`)
+          
+          // Clear the warning after 10 seconds
+          setTimeout(() => {
+            setError(null)
+          }, 10000)
+        }
+
+        // Reset warning flag if user has more than (WARNING_MINUTES + 5) minutes left
+        if (minutesLeft > (WARNING_MINUTES + 5) && sessionWarningShown) {
+          setSessionWarningShown(false)
+        }
+      }
+    }
+
+    // Check session every minute
+    const interval = setInterval(checkSession, 60000)
+
+    // Update activity on user interactions
+    const updateActivity = () => {
+      updateLastActivity()
+      // Reset session warning when user is active
+      if (sessionWarningShown) {
+        setSessionWarningShown(false)
+        setError(null)
+      }
+    }
+    
+    // Add event listeners for user activity
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click']
+    events.forEach(event => {
+      document.addEventListener(event, updateActivity, true)
+    })
+
+    // Cleanup
+    return () => {
+      clearInterval(interval)
+      events.forEach(event => {
+        document.removeEventListener(event, updateActivity, true)
+      })
+    }
+  }, [isInitialized, autoLogout, updateLastActivity, sessionWarningShown])
+
+  // Update activity when app initializes
+  useEffect(() => {
+    if (isInitialized) {
+      updateLastActivity()
+    }
+  }, [isInitialized, updateLastActivity])
 
   // Function to reload current conversation from backend
   const reloadCurrentConversation = async () => {
@@ -133,6 +239,13 @@ const App = () => {
       setSessionId(newSessionId)
       console.log('🆔 Generated new session ID:', newSessionId)
       
+      // Store in localStorage
+      localStorage.setItem('nquiry_isInitialized', 'true')
+      localStorage.setItem('nquiry_currentUser', JSON.stringify(response.organization_data || { email: email }))
+      localStorage.setItem('nquiry_customerEmail', email)
+      localStorage.setItem('nquiry_sessionId', newSessionId)
+      localStorage.setItem('nquiry_lastActivity', Date.now().toString()) // Set initial activity timestamp
+      
       // Trigger sidebar refresh for new user
       setSidebarRefreshTrigger(prev => prev + 1)
       
@@ -148,6 +261,13 @@ const App = () => {
       const newSessionId = generateSessionId()
       setSessionId(newSessionId)
       console.log('🆔 Generated new session ID (fallback):', newSessionId)
+      
+      // Store in localStorage even on fallback
+      localStorage.setItem('nquiry_isInitialized', 'true')
+      localStorage.setItem('nquiry_currentUser', JSON.stringify({ email: email }))
+      localStorage.setItem('nquiry_customerEmail', email)
+      localStorage.setItem('nquiry_sessionId', newSessionId)
+      localStorage.setItem('nquiry_lastActivity', Date.now().toString()) // Set initial activity timestamp
       
       // Still trigger sidebar refresh even on fallback
       setSidebarRefreshTrigger(prev => prev + 1)
@@ -181,6 +301,7 @@ const App = () => {
     localStorage.removeItem('nquiry_currentUser')
     localStorage.removeItem('nquiry_customerEmail')
     localStorage.removeItem('nquiry_sessionId')
+    localStorage.removeItem('nquiry_lastActivity') // Clear activity timestamp
     
     console.log('User logged out - all state and localStorage cleared')
   }
@@ -257,8 +378,8 @@ const App = () => {
     }
   }, [messages, audioEnabled, speak])
 
-  const handleSendMessage = async (message) => {
-    if (!message.trim()) return
+  const handleSendMessage = async (message, images = []) => {
+    if (!message.trim() && (!images || images.length === 0)) return
 
     // Clear downloads section when sending a new message (unless it's a ticket confirmation)
     const isTicketRequest = /^(yes|y|yeah|yep|yes create|create ticket|create|ticket|yes please|yes pls|sure|okay|ok|confirm|proceed|go ahead|create support ticket|create a support ticket|do it)$/i.test(message.trim())
@@ -285,7 +406,8 @@ const App = () => {
           id: Date.now(),
           type: MESSAGE_TYPES.USER,
           content: message,
-          timestamp: getISTTimestamp()
+          timestamp: getISTTimestamp(),
+          images: images
         }
         setMessages(prev => [...prev, userMessage])
         
@@ -298,7 +420,8 @@ const App = () => {
       id: Date.now(),
       type: MESSAGE_TYPES.USER,
       content: message,
-      timestamp: getISTTimestamp()
+      timestamp: getISTTimestamp(),
+      images: images
     }
     setMessages(prev => [...prev, userMessage])
 
@@ -312,7 +435,8 @@ const App = () => {
         message, 
         customerEmail || 'demo_user',
         currentUser, // Pass the full organization data
-        sessionId // Pass the session ID
+        sessionId, // Pass the session ID
+        images // Pass the images
       )
       
       // Add bot response to chat
