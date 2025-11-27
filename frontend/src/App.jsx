@@ -5,6 +5,7 @@ import ChatInputFixed from './components/chat/ChatInputFixed'
 import Header from './components/Header'
 import AuthenticationForm from './components/AuthenticationForm'
 import TicketForm from './components/forms/TicketForm'
+import IntelligentQuestions from './components/forms/IntelligentQuestions'
 import { MESSAGE_TYPES } from './utils/constants'
 import { useVoice } from './hooks/useVoice'
 
@@ -60,8 +61,12 @@ const App = () => {
   const [showTicketForm, setShowTicketForm] = useState(false)
   const [ticketQuery, setTicketQuery] = useState('')
   const [isEscalation, setIsEscalation] = useState(false)
-  const [audioEnabled, setAudioEnabled] = useState(false)
   const [sessionWarningShown, setSessionWarningShown] = useState(false)
+  
+  // Intelligent ticket creation state
+  const [showIntelligentQuestions, setShowIntelligentQuestions] = useState(false)
+  const [targetedQuestions, setTargetedQuestions] = useState([])
+  const [partialTicketData, setPartialTicketData] = useState({})
   
   // Chat history state
   const [chatHistory, setChatHistory] = useState([])
@@ -220,6 +225,9 @@ const App = () => {
       setIsEscalation(false)
       setDownloadableTicket(null)
       setShowDownloads(false)
+      setShowIntelligentQuestions(false)
+      setTargetedQuestions([])
+      setPartialTicketData({})
       
       // Set new user info
       setCustomerEmail(email)
@@ -291,9 +299,11 @@ const App = () => {
     setShowTicketForm(false)
     setTicketQuery('')
     setIsEscalation(false)
-    setAudioEnabled(false)
     setDownloadableTicket(null)
     setShowDownloads(false)
+    setShowIntelligentQuestions(false)
+    setTargetedQuestions([])
+    setPartialTicketData({})
     setSidebarRefreshTrigger(prev => prev + 1)
     
     // Clear localStorage
@@ -306,20 +316,19 @@ const App = () => {
     console.log('User logged out - all state and localStorage cleared')
   }
 
-  const handleAudioToggle = useCallback((enabled) => {
-    setAudioEnabled(enabled)
-    if (!enabled && stopSpeaking) {
-      // Stop any ongoing speech when audio is disabled
-      stopSpeaking()
-    }
-  }, [stopSpeaking])
-
   // Handle feedback submission for continuous learning
   const handleFeedbackSubmitted = (feedbackType, feedbackCategory) => {
     console.log('Feedback submitted:', { feedbackType, feedbackCategory })
     // You can show a toast notification or update UI state here
     // The feedback has already been sent to the backend by FeedbackButtons component
   }
+
+  const handleAudioToggleForMessage = useCallback((messageId, enabled) => {
+    // For now, we'll use individual message audio settings
+    // In the future, this could store per-message audio preferences
+    console.log(`Audio ${enabled ? 'enabled' : 'disabled'} for message ${messageId}`)
+    // Optionally store per-message preferences in localStorage or state
+  }, [])
 
   // Persist authentication state to localStorage
   useEffect(() => {
@@ -354,30 +363,6 @@ const App = () => {
     }
   }, []) // Run only once on mount
 
-  // Handle text-to-speech for new bot messages
-  useEffect(() => {
-    if (!audioEnabled || !speak || messages.length === 0) return
-
-    const lastMessage = messages[messages.length - 1]
-    
-    // Only speak bot messages
-    if (lastMessage.type === MESSAGE_TYPES.BOT && lastMessage.content) {
-      // Clean up content for speech (remove markdown and formatting)
-      const cleanContent = lastMessage.content
-        .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markdown
-        .replace(/\*(.*?)\*/g, '$1')     // Remove italic markdown
-        .replace(/`(.*?)`/g, '$1')       // Remove code markdown
-        .replace(/#{1,6}\s?/g, '')       // Remove headers
-        .replace(/\n/g, ' ')             // Replace newlines with spaces
-        .replace(/🎫|📊|✅|❌|⚠️|🔍|📚|💡/g, '') // Remove emojis
-        .trim()
-      
-      if (cleanContent) {
-        speak(cleanContent)
-      }
-    }
-  }, [messages, audioEnabled, speak])
-
   const handleSendMessage = async (message, images = []) => {
     if (!message.trim() && (!images || images.length === 0)) return
 
@@ -388,31 +373,6 @@ const App = () => {
       // Clear downloads when user sends a new query
       setShowDownloads(false)
       setDownloadableTicket(null)
-    }
-    
-    // If the last bot message offered ticket creation and user says yes, show ticket form
-    if (isTicketRequest && messages.length > 0) {
-      const lastBotMessage = [...messages].reverse().find(msg => msg.type === MESSAGE_TYPES.BOT)
-      if (lastBotMessage && (
-        lastBotMessage.content.includes('would you like me to create a support ticket') ||
-        lastBotMessage.content.includes('Would you like me to create a ticket') ||
-        lastBotMessage.content.includes('create a support ticket for you')
-      )) {
-        // User confirmed ticket creation, show the form
-        setShowTicketForm(true)
-        
-        // Add user message to chat
-        const userMessage = {
-          id: Date.now(),
-          type: MESSAGE_TYPES.USER,
-          content: message,
-          timestamp: getISTTimestamp(),
-          images: images
-        }
-        setMessages(prev => [...prev, userMessage])
-        
-        return // Don't send to backend, just show the form
-      }
     }
 
     // Add user message to chat immediately for better UX
@@ -429,46 +389,113 @@ const App = () => {
     setError(null)
 
     try {
-      // Call chat API using chatService (don't add user message locally, let the refresh handle it)
+      // Add loading message with streaming indicator
+      const loadingMessageId = Date.now() + 1
+      const loadingMessage = {
+        id: loadingMessageId,
+        type: MESSAGE_TYPES.BOT,
+        content: '🤖 Nquiry is thinking...',
+        timestamp: getISTTimestamp(),
+        isLoading: true
+      }
+      setMessages(prev => [...prev, loadingMessage])
+
+      // Call chat API using chatService with streaming
       const { chatService } = await import('./services/chatService')
-      const data = await chatService.sendMessage(
+      await chatService.sendMessageStream(
         message, 
         customerEmail || 'demo_user',
         currentUser, // Pass the full organization data
         sessionId, // Pass the session ID
-        images // Pass the images
-      )
-      
-      // Add bot response to chat
-      if (data.response) {
-        const botMessage = {
-          id: Date.now() + 1,
-          type: MESSAGE_TYPES.BOT,
-          content: data.response,
-          timestamp: getISTTimestamp()
+        images, // Pass the images
+        // onStatusUpdate callback
+        (statusData) => {
+          console.log('Status update:', statusData)
+          setMessages(prev => prev.map(msg => 
+            msg.id === loadingMessageId 
+              ? { ...msg, content: `${statusData.icon} ${statusData.status}` }
+              : msg
+          ))
+        },
+        // onFinalResponse callback
+        (data) => {
+          console.log('Final response received:', data)
+          
+          // Replace loading message with final response
+          const finalMessage = {
+            id: loadingMessageId,
+            type: MESSAGE_TYPES.BOT,
+            content: data.response,
+            timestamp: getISTTimestamp(),
+            isLoading: false
+          }
+          setMessages(prev => prev.map(msg => 
+            msg.id === loadingMessageId ? finalMessage : msg
+          ))
+
+          // Handle automatic ticket creation
+          if (data.auto_ticket_created && data.ticket_data) {
+            console.log('🤖 Automatic ticket was created by AI')
+            // The response message already contains the ticket details
+            // Just setup downloads
+            // Generate comprehensive ticket content with all fields
+            const generateTicketContent = (ticketData) => {
+              let content = `AUTOMATIC AI TICKET
+===================
+
+Ticket ID: ${ticketData.ticket_id}
+Category: ${ticketData.category}
+Customer: ${ticketData.customer}
+Priority: ${ticketData.priority}
+Description: ${ticketData.description}
+
+AUTO-POPULATED FIELDS FROM ${ticketData.category} CATEGORY:
+`
+              
+              // Add all additional fields from the ticket data
+              Object.entries(ticketData).forEach(([key, value]) => {
+                if (!['ticket_id', 'category', 'customer', 'priority', 'description'].includes(key) && value) {
+                  // Format field name (convert snake_case to Title Case)
+                  const fieldName = key.split('_').map(word => 
+                    word.charAt(0).toUpperCase() + word.slice(1)
+                  ).join(' ')
+                  content += `• ${fieldName}: ${value}\n`
+                }
+              })
+              
+              content += `\nThis ticket was created automatically using AI analysis.`
+              return content
+            }
+            
+            setDownloadableTicket({
+              ticket_data: data.ticket_data,
+              downloadable_content: generateTicketContent(data.ticket_data),
+              filename: `auto_ticket_${data.ticket_data.category}_${Date.now()}.txt`
+            })
+            setShowDownloads(true)
+            setSidebarRefreshTrigger(prev => prev + 1)
+            return // Skip other form-related logic
+          }
+
+          // Handle targeted questions for intelligent ticket creation
+          if (data.needs_questions && data.questions) {
+            console.log('❓ AI needs targeted questions for ticket creation')
+            // Show a special UI for targeted questions instead of full form
+            setShowIntelligentQuestions(true)
+            setTargetedQuestions(data.questions)
+            setPartialTicketData(data.ticket_data)
+            return // Skip other form-related logic
+          }
+
+          // Check if backend wants to show ticket form (traditional flow)
+          if (data.show_ticket_form) {
+            console.log('Backend requested ticket form to be shown')
+            setShowTicketForm(true)
+            setTicketQuery(message)
+            setIsEscalation(false) // Default to non-escalation
+          }
         }
-        setMessages(prev => [...prev, botMessage])
-      }
-
-      // Check if backend wants to show ticket form
-      if (data.show_ticket_form) {
-        console.log('Backend requested ticket form to be shown')
-        setShowTicketForm(true)
-        setTicketQuery(message)
-        setIsEscalation(false) // Default to non-escalation
-      }
-
-      // Store ticket-related state for potential future use, but DON'T auto-show the form
-      if (data.response && (
-        data.response.includes('would you like me to create a support ticket') || 
-        data.response.includes('Would you like me to create a ticket') ||
-        data.response.includes('create a support ticket for you')
-      )) {
-        // Store the query for potential ticket creation, but don't show form yet
-        setTicketQuery(message)
-        setIsEscalation(data.response.includes('escalate'))
-        // Note: We do NOT call setShowTicketForm(true) here anymore
-      }
+      )
 
       // Refresh sidebar for new conversation
       setSidebarRefreshTrigger(prev => prev + 1)
@@ -477,15 +504,16 @@ const App = () => {
       console.error('Failed to send message:', error)
       setError(error.message)
       
-      // Add error message
-      const errorMessage = {
-        id: Date.now() + 1,
-        type: MESSAGE_TYPES.BOT,
-        content: `Sorry, I encountered an error: ${error.message}`,
-        timestamp: getISTTimestamp()
-      }
-
-      setMessages(prev => [...prev, errorMessage])
+      // Replace loading message with error message
+      setMessages(prev => prev.map(msg => 
+        msg.isLoading 
+          ? {
+              ...msg,
+              content: `❌ Sorry, I encountered an error: ${error.message}`,
+              isLoading: false
+            }
+          : msg
+      ))
       
       // Error message speech will be handled by useEffect
     } finally {
@@ -534,6 +562,49 @@ Use the download buttons that will appear below.`,
     setShowTicketForm(false)
     setTicketQuery('')
     setIsEscalation(false)
+  }
+
+  const handleIntelligentQuestionsCompleted = (response) => {
+    // Handle the ticket creation response from intelligent questions
+    console.log('✅ Intelligent ticket creation completed:', response)
+    
+    // Add success message to chat
+    const successMessage = {
+      id: Date.now(),
+      type: MESSAGE_TYPES.BOT,
+      content: response.message || 'Ticket created successfully using intelligent analysis!',
+      timestamp: getISTTimestamp()
+    }
+    setMessages(prev => [...prev, successMessage])
+    
+    // Setup downloads if available
+    if (response.downloadable_content) {
+      setDownloadableTicket(response)
+      setShowDownloads(true)
+    }
+    
+    // Close the questions dialog
+    setShowIntelligentQuestions(false)
+    setTargetedQuestions([])
+    setPartialTicketData({})
+    
+    // Refresh sidebar
+    setSidebarRefreshTrigger(prev => prev + 1)
+  }
+
+  const handleIntelligentQuestionsCancelled = () => {
+    setShowIntelligentQuestions(false)
+    setTargetedQuestions([])
+    setPartialTicketData({})
+    
+    // Add cancellation message
+    const cancelMessage = {
+      id: Date.now(),
+      type: MESSAGE_TYPES.BOT,
+      content: "No problem! If you need assistance later, just let me know and I'll be happy to help create a ticket for you.",
+      timestamp: getISTTimestamp()
+    }
+    setMessages(prev => [...prev, cancelMessage])
   }
 
   const downloadTicketDetails = () => {
@@ -623,6 +694,9 @@ Use the download buttons that will appear below.`,
   const clearDownloads = () => {
     setDownloadableTicket(null)
     setShowDownloads(false)
+    setShowIntelligentQuestions(false)
+    setTargetedQuestions([])
+    setPartialTicketData({})
   }
 
   const handleNewConversation = () => {
@@ -632,6 +706,9 @@ Use the download buttons that will appear below.`,
     setTicketQuery('')
     setIsEscalation(false)
     setError(null)
+    setShowIntelligentQuestions(false)
+    setTargetedQuestions([])
+    setPartialTicketData({})
   }
 
   const handleLoadConversation = (conversation) => {
@@ -677,8 +754,6 @@ Use the download buttons that will appear below.`,
         onNewConversation={handleNewConversation}
         onLoadConversation={handleLoadConversation}
         refreshTrigger={sidebarRefreshTrigger}
-        audioEnabled={audioEnabled}
-        onAudioToggle={handleAudioToggle}
       />
 
       {/* Main Content */}
@@ -692,26 +767,11 @@ Use the download buttons that will appear below.`,
           userId={customerEmail}
           sessionId={sessionId}
           onFeedbackSubmitted={handleFeedbackSubmitted}
+          audioEnabled={true}
+          onAudioToggleForMessage={handleAudioToggleForMessage}
         />
 
-        {/* Floating Stop Speech Button */}
-        {isSpeaking && audioEnabled && (
-          <div className="fixed bottom-24 right-6 z-40">
-            <button
-              onClick={stopSpeaking}
-              className="bg-red-500 text-white p-3 rounded-full shadow-lg hover:bg-red-600 transition-colors flex items-center space-x-2"
-              title="Stop reading aloud"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" />
-              </svg>
-              <span className="text-sm font-medium">Stop</span>
-            </button>
-          </div>
-        )}
-
-        {/* Ticket Form */}
+        {/* Chat Input */}
         {showTicketForm && (
           <TicketForm
             query={ticketQuery}
@@ -720,6 +780,18 @@ Use the download buttons that will appear below.`,
             chatHistory={messages}
             onTicketCreated={handleTicketCreated}
             onCancel={handleTicketCancelled}
+          />
+        )}
+
+        {/* Intelligent Questions for Automatic Ticket Creation */}
+        {showIntelligentQuestions && (
+          <IntelligentQuestions
+            questions={targetedQuestions}
+            originalQuery={ticketQuery}
+            partialTicketData={partialTicketData}
+            customerEmail={customerEmail}
+            onCompleted={handleIntelligentQuestionsCompleted}
+            onCancel={handleIntelligentQuestionsCancelled}
           />
         )}
 
@@ -763,7 +835,6 @@ Use the download buttons that will appear below.`,
             onSendMessage={handleSendMessage}
             isLoading={isLoading}
             disabled={isLoading}
-            audioEnabled={audioEnabled}
           />
         )}
 

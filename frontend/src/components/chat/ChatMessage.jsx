@@ -1,8 +1,17 @@
 import React, { useState } from 'react'
 import { Copy, CheckCircle, User, Bot, Expand } from 'lucide-react'
 import FeedbackButtons from '../feedback/FeedbackButtons'
+import AudioFeedback from '../audio/AudioFeedback'
 
-const ChatMessage = ({ message, isBot = false, userId = '', sessionId = '', onFeedbackSubmitted }) => {
+const ChatMessage = ({ 
+  message, 
+  isBot = false, 
+  userId = '', 
+  sessionId = '', 
+  onFeedbackSubmitted,
+  audioEnabled = false,
+  onAudioToggleForMessage 
+}) => {
   const { content, timestamp, images } = message
   const [copied, setCopied] = useState(false)
   const [expandedImage, setExpandedImage] = useState(null)
@@ -125,13 +134,27 @@ const ChatMessage = ({ message, isBot = false, userId = '', sessionId = '', onFe
 
               {/* Text content */}
               {isBot ? (
-                <div 
-                  className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
-                  style={{ fontSize: '14px', lineHeight: '1.6' }}
-                  dangerouslySetInnerHTML={{ 
-                    __html: formatBotContent(content)
-                  }}
-                />
+                <div className="relative">
+                  <div 
+                    className={`prose prose-sm max-w-none text-gray-800 leading-relaxed transition-opacity duration-300 ${message.isLoading ? 'opacity-70' : 'opacity-100'}`}
+                    style={{ fontSize: '14px', lineHeight: '1.6' }}
+                    dangerouslySetInnerHTML={{ 
+                      __html: formatBotContent(content)
+                    }}
+                  />
+                  
+                  {/* Loading indicator for streaming messages - smaller and under the content */}
+                  {message.isLoading && (
+                    <div className="flex items-center space-x-2 mt-2 pt-2 border-t border-gray-200">
+                      <div className="flex space-x-1">
+                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce"></div>
+                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                      </div>
+                      <span className="text-xs text-gray-500 italic">Processing...</span>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <p className="text-sm leading-relaxed text-gray-800">{content}</p>
               )}
@@ -159,21 +182,31 @@ const ChatMessage = ({ message, isBot = false, userId = '', sessionId = '', onFe
 
             {/* Status indicator and feedback for bot messages */}
             {isBot && (
-              <div className="mt-2 pt-2 border-t border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
-                    <span className="text-xs text-gray-500">Response generated</span>
+              <>
+                <div className="mt-2 pt-2 border-t border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
+                      <span className="text-xs text-gray-500">Response generated</span>
+                    </div>
+                    <FeedbackButtons
+                      messageId={message.id}
+                      messageContent={content}
+                      userId={userId}
+                      sessionId={sessionId}
+                      onFeedbackSubmitted={onFeedbackSubmitted}
+                    />
                   </div>
-                  <FeedbackButtons
-                    messageId={message.id}
-                    messageContent={content}
-                    userId={userId}
-                    sessionId={sessionId}
-                    onFeedbackSubmitted={onFeedbackSubmitted}
-                  />
                 </div>
-              </div>
+                
+                {/* Audio Feedback Component */}
+                <AudioFeedback
+                  messageContent={content}
+                  isEnabled={audioEnabled}
+                  messageId={message.id}
+                  onToggleForMessage={onAudioToggleForMessage}
+                />
+              </>
             )}
           </div>
         </div>

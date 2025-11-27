@@ -161,15 +161,6 @@ const ChatInputFixed = ({
           </div>
         )}
 
-        {/* Audio feedback toggle */}
-        {audioEnabled && (
-          <div className="mb-4 flex justify-end">
-            <div className="flex items-center space-x-2 text-sm text-gray-600">
-              <span>🔊 Audio feedback enabled</span>
-            </div>
-          </div>
-        )}
-
         {/* Input form */}
         <form onSubmit={handleSubmit} className="flex items-end space-x-3">
           <div className="flex-1">

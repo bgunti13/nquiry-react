@@ -30,17 +30,9 @@ const ChatPage = () => {
   }
 
   const handleSendMessage = async (message) => {
-    // Check if this is a ticket creation request
-    const isTicketRequest = message.toLowerCase().includes('create ticket') || 
-                           message.toLowerCase().includes('create a ticket') ||
-                           message.toLowerCase().includes('support ticket')
-
-    if (isTicketRequest) {
-      setTicketQuery(message)
-      setShowTicketForm(true)
-    } else {
-      await sendMessage(message)
-    }
+    // Always send the message to the backend first
+    // The backend will handle intelligent ticket creation
+    await sendMessage(message)
   }
 
   const handleTicketSubmit = async (ticketData) => {

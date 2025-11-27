@@ -68,27 +68,30 @@ export const useVoice = () => {
   }, [checkSupport])
 
   // Speak text using browser's speech synthesis
-  const speak = useCallback((text) => {
+  const speak = useCallback((text, options = {}) => {
     if ('speechSynthesis' in window) {
       // Cancel any ongoing speech
       window.speechSynthesis.cancel()
       
       const utterance = new SpeechSynthesisUtterance(text)
-      utterance.rate = 1.0
-      utterance.pitch = 1.0
-      utterance.volume = 1.0
+      utterance.rate = options.rate || 1.0
+      utterance.pitch = options.pitch || 1.0
+      utterance.volume = options.volume || 1.0
       
       // Track speaking state
       utterance.onstart = () => {
         setIsSpeaking(true)
+        options.onStart?.()
       }
       
       utterance.onend = () => {
         setIsSpeaking(false)
+        options.onEnd?.()
       }
       
       utterance.onerror = () => {
         setIsSpeaking(false)
+        options.onError?.()
       }
       
       setIsSpeaking(true)

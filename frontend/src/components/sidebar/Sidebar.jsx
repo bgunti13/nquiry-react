@@ -7,8 +7,6 @@ import {
   Plus, 
   Settings, 
   Clock,
-  Volume2,
-  VolumeX,
   Download,
   FileText,
   Ticket,
@@ -22,14 +20,17 @@ const Sidebar = ({
   currentUser, 
   onNewConversation,
   onLoadConversation,
-  refreshTrigger,
-  audioEnabled,
-  onAudioToggle
+  refreshTrigger
 }) => {
   const [conversations, setConversations] = useState([])
   const [recentTickets, setRecentTickets] = useState([])
   const [selectedConversation, setSelectedConversation] = useState(null)
   const [activeTab, setActiveTab] = useState('conversations') // 'conversations' or 'tickets'
+  
+  // Search functionality
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filteredConversations, setFilteredConversations] = useState([])
+  const [filteredTickets, setFilteredTickets] = useState([])
 
   // Load conversation history and recent tickets
   useEffect(() => {
@@ -61,6 +62,29 @@ const Sidebar = ({
       setSelectedConversation(null)
     }
   }, [currentUser?.email, refreshTrigger]) // Use currentUser.email specifically
+
+  // Search filtering effect
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredConversations(conversations)
+      setFilteredTickets(recentTickets)
+    } else {
+      // Filter conversations
+      const filteredConvos = conversations.filter(conversation => 
+        conversation.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        conversation.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+      setFilteredConversations(filteredConvos)
+
+      // Filter tickets
+      const filteredTix = recentTickets.filter(ticket =>
+        ticket.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        ticket.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        ticket.status.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+      setFilteredTickets(filteredTix)
+    }
+  }, [searchQuery, conversations, recentTickets])
 
   const loadConversationHistory = async () => {
     try {
@@ -515,22 +539,26 @@ const Sidebar = ({
           </button>
         </div>
 
-        {/* Audio Toggle */}
-        <div className="mt-3 pt-3 border-t border-gray-200">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-700">Audio Feedback</span>
+        {/* Search Input */}
+        <div className="mt-3 relative">
+          <input
+            type="text"
+            placeholder={`Search ${activeTab === 'conversations' ? 'conversations...' : 'tickets...'}`}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full px-3 py-2 pl-10 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+          />
+          <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+          {searchQuery && (
             <button
-              onClick={() => onAudioToggle(!audioEnabled)}
-              className={`p-1 rounded transition-colors ${
-                audioEnabled 
-                  ? 'text-blue-600 hover:bg-blue-100' 
-                  : 'text-gray-400 hover:bg-gray-200'
-              }`}
-              title={audioEnabled ? 'Disable audio' : 'Enable audio'}
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
             >
-              {audioEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
-          </div>
+          )}
         </div>
       </div>
 
@@ -538,9 +566,9 @@ const Sidebar = ({
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'conversations' ? (
           // Conversations Tab - ChatGPT Style
-          conversations.length > 0 ? (
+          filteredConversations.length > 0 ? (
             <div className="p-2 space-y-1">
-              {conversations.map((conversation) => (
+              {filteredConversations.map((conversation) => (
                 <button
                   key={conversation.id}
                   onClick={() => handleConversationClick(conversation)}
@@ -578,10 +606,23 @@ const Sidebar = ({
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-center p-6">
               <MessageCircle className="w-12 h-12 text-gray-300 mb-3" />
-              <h3 className="text-sm font-medium text-gray-600 mb-1">No conversations yet</h3>
+              <h3 className="text-sm font-medium text-gray-600 mb-1">
+                {searchQuery ? 'No conversations found' : 'No conversations yet'}
+              </h3>
               <p className="text-xs text-gray-500">
-                Start a new conversation to see your chat history here
+                {searchQuery 
+                  ? `No conversations match "${searchQuery}"`
+                  : 'Start a new conversation to see your chat history here'
+                }
               </p>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="mt-2 text-xs text-blue-600 hover:text-blue-700"
+                >
+                  Clear search
+                </button>
+              )}
             </div>
           )
         ) : (
@@ -592,9 +633,9 @@ const Sidebar = ({
                 {getOrganizationFromEmail(currentUser?.email)} Recent Tickets
               </h3>
             </div>
-            {recentTickets.length > 0 ? (
+            {filteredTickets.length > 0 ? (
               <div className="space-y-1">
-                {recentTickets.map((ticket) => (
+                {filteredTickets.map((ticket) => (
                   <div
                     key={ticket.id}
                     className="p-3 rounded-lg bg-white hover:shadow-sm transition-all duration-200 border border-gray-100"
@@ -634,10 +675,23 @@ const Sidebar = ({
             ) : (
               <div className="flex flex-col items-center justify-center h-64 text-center p-6">
                 <Ticket className="w-12 h-12 text-gray-300 mb-3" />
-                <h3 className="text-sm font-medium text-gray-600 mb-1">No recent tickets</h3>
+                <h3 className="text-sm font-medium text-gray-600 mb-1">
+                  {searchQuery ? 'No tickets found' : 'No recent tickets'}
+                </h3>
                 <p className="text-xs text-gray-500">
-                  No tickets found for {getOrganizationFromEmail(currentUser?.email)}
+                  {searchQuery 
+                    ? `No tickets match "${searchQuery}"`
+                    : `No tickets found for ${getOrganizationFromEmail(currentUser?.email)}`
+                  }
                 </p>
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="mt-2 text-xs text-blue-600 hover:text-blue-700"
+                  >
+                    Clear search
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -646,7 +700,7 @@ const Sidebar = ({
 
       {/* Footer */}
       <div className="p-4 border-t border-gray-200 bg-white">
-        {activeTab === 'conversations' && conversations.length > 0 && (
+        {activeTab === 'conversations' && conversations.length > 0 && !searchQuery && (
           <button
             onClick={clearChatHistory}
             className="w-full flex items-center justify-center space-x-2 px-3 py-2 text-sm text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
@@ -654,6 +708,17 @@ const Sidebar = ({
             <Trash2 className="w-4 h-4" />
             <span>Clear Chat History</span>
           </button>
+        )}
+        
+        {/* Search Results Count */}
+        {searchQuery && (
+          <div className="text-center text-xs text-gray-500 py-2">
+            {activeTab === 'conversations' ? (
+              <span>{filteredConversations.length} of {conversations.length} conversations</span>
+            ) : (
+              <span>{filteredTickets.length} of {recentTickets.length} tickets</span>
+            )}
+          </div>
         )}
       </div>
     </div>

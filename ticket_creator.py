@@ -14,13 +14,21 @@ class TicketCreator:
     """
     
     def __init__(self):
-        # Load ticket configuration
-        config_path = os.path.join(os.path.dirname(__file__), 'ticket_mapping_config.json')
-        with open(config_path, 'r') as f:
-            self.ticket_config = json.load(f)
+        # Load ticket configuration from Excel (with JSON fallback)
+        from ticket_mapping_manager import TicketMappingManager
+        self.mapping_manager = TicketMappingManager()
+        self.ticket_config = self.mapping_manager.get_mapping()
         
         # Initialize dynamic customer role manager
         self.customer_role_manager = CustomerRoleMappingManager()
+        
+        # Import environment detection utility
+        try:
+            from environment_detection import process_mnht_mnls_environment
+            self.environment_processor = process_mnht_mnls_environment
+        except ImportError:
+            print("⚠️ Environment detection not available")
+            self.environment_processor = None
         
         # Fallback customer mappings (only used if Excel system fails)
         self.fallback_customer_email_to_category = {
@@ -31,6 +39,21 @@ class TicketCreator:
             'abbvie.com': 'MNLS',
             'amgen.com': 'MNLS'
         }
+        
+        print(f"✅ TicketCreator initialized - {self.mapping_manager.get_source_info()}")
+        
+        # Check if MNHT/MNLS have updated field configurations
+        categories = self.ticket_config.get('ticket_categories', {})
+        for category in ['MNHT', 'MNLS']:
+            if category in categories:
+                required_fields = list(categories[category].get('required_fields', {}).keys())
+                print(f"📋 {category} required fields: {required_fields}")
+                
+                # Check if area is auto-populated
+                populated_fields = categories[category].get('populated_fields', {})
+                if 'area' in populated_fields:
+                    print(f"🎯 {category} area auto-populated: {populated_fields['area']}")
+    
     
     def create_ticket(self, query: str, customer_email: str = None) -> Dict:
         """
@@ -355,6 +378,40 @@ class TicketCreator:
         print(f"⚠️ Using default category: {default_category}")
         return default_category
     
+    def process_environment_field(self, query: str, category: str, user_response: str = None) -> Dict:
+        """
+        Process reported_environment field for MNHT/MNLS tickets with auto-detection
+        
+        Args:
+            query: Original user query
+            category: Ticket category 
+            user_response: Optional user response if we asked follow-up question
+            
+        Returns:
+            Dictionary with environment processing results
+        """
+        if category not in ['MNHT', 'MNLS']:
+            # For other categories, default to production
+            return {
+                'environment': 'production',
+                'auto_detected': False,
+                'confidence': 1.0,
+                'needs_question': False,
+                'question': None
+            }
+        
+        if self.environment_processor:
+            return self.environment_processor(query, user_response)
+        else:
+            # Fallback if environment detection not available
+            return {
+                'environment': 'production',
+                'auto_detected': False,
+                'confidence': 0.5,
+                'needs_question': True,
+                'question': "Which environment is affected by this issue? (production or staging)"
+            }
+
     def get_required_fields_for_category(self, category: str) -> Dict:
         """Get required fields for a specific category"""
         categories = self.ticket_config.get("ticket_categories", {})
@@ -371,7 +428,7 @@ class TicketCreator:
     
     def collect_user_input_for_category(self, category: str, query: str, customer: str, customer_email: str) -> Dict:
         """
-        Collect user input for required fields based on category
+        Collect user input for required fields based on category with smart auto-detection
         """
         ticket_data = {}
         required_fields = self.get_required_fields_for_category(category)
@@ -386,24 +443,96 @@ class TicketCreator:
             else:
                 prompt = f"{field_description}: "
             
-            # For description field, suggest using the original query
+            # Special handling for different fields
             if field_name == 'description':
+                # For description field, suggest using the original query
                 suggested_value = query
                 user_input = input(f"{prompt}(Press Enter to use: '{suggested_value}') ").strip()
                 if not user_input:
                     user_input = suggested_value
+                ticket_data[field_name] = user_input
+                
+            elif field_name in ['reported_environment', 'environment'] and category in ['MNHT', 'MNLS']:
+                # Special handling for environment field with auto-detection
+                env_result = self.process_environment_field(query, category)
+                
+                if env_result.get('environment'):
+                    # Environment was auto-detected or previously provided
+                    if env_result.get('auto_detected'):
+                        print(f"🎯 Auto-detected environment: {env_result['environment']} (confidence: {env_result['confidence']:.1%})")
+                        confirm = input(f"Use auto-detected environment '{env_result['environment']}'? (Y/n): ").strip().lower()
+                        if confirm in ['', 'y', 'yes']:
+                            ticket_data[field_name] = env_result['environment']
+                        else:
+                            # User wants to specify manually
+                            user_input = input("Which environment is affected? (production/staging): ").strip()
+                            validated_env = self.validate_environment_input(user_input)
+                            if validated_env:
+                                ticket_data[field_name] = validated_env
+                            else:
+                                # Default to production if invalid
+                                print("⚠️ Invalid environment, defaulting to 'production'")
+                                ticket_data[field_name] = 'production'
+                    else:
+                        ticket_data[field_name] = env_result['environment']
+                elif env_result.get('needs_question'):
+                    # Need to ask user for environment
+                    user_input = input(f"{env_result.get('question', prompt)}: ").strip()
+                    validated_env = self.validate_environment_input(user_input)
+                    if validated_env:
+                        ticket_data[field_name] = validated_env
+                    else:
+                        # Keep asking until valid
+                        while not validated_env:
+                            user_input = input("⚠️ Please specify 'production' or 'staging': ").strip()
+                            validated_env = self.validate_environment_input(user_input)
+                        ticket_data[field_name] = validated_env
+                else:
+                    # Fallback to manual input
+                    user_input = input(prompt).strip()
+                    if user_input:
+                        ticket_data[field_name] = user_input
+                    else:
+                        ticket_data[field_name] = 'production'  # Default
+                        
             else:
+                # Standard field handling
                 user_input = input(prompt).strip()
-            
-            if user_input:
-                ticket_data[field_name] = user_input
-            elif "(Optional)" not in field_description:
-                # For required fields, keep asking until we get input
-                while not user_input:
-                    user_input = input(f"⚠️  {field_name} is required. {prompt}").strip()
-                ticket_data[field_name] = user_input
+                
+                if user_input:
+                    ticket_data[field_name] = user_input
+                elif "(Optional)" not in field_description:
+                    # For required fields, keep asking until we get input
+                    while not user_input:
+                        user_input = input(f"⚠️  {field_name} is required. {prompt}").strip()
+                    ticket_data[field_name] = user_input
         
         return ticket_data
+    
+    def validate_environment_input(self, user_input: str) -> Optional[str]:
+        """
+        Validate user input for environment field
+        
+        Args:
+            user_input: User's input string
+            
+        Returns:
+            Validated environment string or None if invalid
+        """
+        if not user_input:
+            return None
+            
+        user_input = user_input.lower().strip()
+        
+        # Production variations
+        if user_input in ['production', 'prod', 'live', 'p', '1']:
+            return 'production'
+        
+        # Staging variations  
+        if user_input in ['staging', 'stage', 'test', 'dev', 'development', 's', '2']:
+            return 'staging'
+        
+        return None
     
     def create_ticket_streamlit(self, query: str, customer_email: str = None, ticket_data: dict = None) -> Dict:
         """

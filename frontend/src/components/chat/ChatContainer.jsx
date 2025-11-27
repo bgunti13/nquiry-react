@@ -2,7 +2,15 @@ import React, { useEffect, useRef } from 'react'
 import ChatMessage from './ChatMessage'
 import { MESSAGE_TYPES } from '../../utils/constants'
 
-const ChatContainer = ({ messages, isLoading, userId, sessionId, onFeedbackSubmitted }) => {
+const ChatContainer = ({ 
+  messages, 
+  isLoading, 
+  userId, 
+  sessionId, 
+  onFeedbackSubmitted, 
+  audioEnabled = false,
+  onAudioToggleForMessage 
+}) => {
   const messagesEndRef = useRef(null)
   const containerRef = useRef(null)
 
@@ -52,11 +60,13 @@ const ChatContainer = ({ messages, isLoading, userId, sessionId, onFeedbackSubmi
             userId={userId}
             sessionId={sessionId}
             onFeedbackSubmitted={onFeedbackSubmitted}
+            audioEnabled={audioEnabled}
+            onAudioToggleForMessage={onAudioToggleForMessage}
           />
         ))}
 
-        {/* Loading indicator */}
-        {isLoading && (
+        {/* Loading indicator - only show if no messages are currently in loading state */}
+        {isLoading && !messages.some(msg => msg.isLoading) && (
           <div className="mb-4 animate-slide-in-left">
             <div className="flex justify-start">
               <div className="chat-message-bot max-w-xs">

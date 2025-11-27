@@ -3,10 +3,12 @@ FastAPI server for nQuiry - Uses existing intelligent system
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone, timedelta
 import asyncio
+import json
 import os
 
 # Import your existing intelligent system
@@ -42,11 +44,21 @@ class ChatMessage(BaseModel):
     organization_data: Optional[Dict[str, Any]] = None
     session_id: Optional[str] = None
 
+class StreamingChatMessage(BaseModel):
+    message: str
+    user_id: str
+    organization_data: Optional[Dict[str, Any]] = None
+    session_id: Optional[str] = None
+
 class ChatResponse(BaseModel):
     response: str
     show_ticket_form: bool = False
     ticket_query: Optional[str] = None
     is_escalation: Optional[bool] = None
+    auto_ticket_created: Optional[bool] = None
+    ticket_data: Optional[Dict[str, Any]] = None
+    needs_questions: Optional[bool] = None
+    questions: Optional[List[str]] = None
 
 class InitializeRequest(BaseModel):
     customer_email: str
@@ -59,6 +71,10 @@ except Exception as e:
     print(f"⚠️ MongoDB connection failed: {e}")
     print("⚠️ Using fallback in-memory storage")
     chat_history_manager = None
+
+# Global dictionaries for storing user processors and chat histories
+processors = {}  # Store processor instances per user
+chat_histories = {}  # Fallback in-memory chat storage
 
 
 def is_greeting_message(message: str) -> tuple:
@@ -156,7 +172,7 @@ def is_direct_ticket_request(query):
     """Check if the user is directly requesting to create a ticket or escalate to human support"""
     query_lower = query.lower().strip()
     
-    # Direct ticket creation keywords
+    # Direct ticket creation keywords - make them more specific to avoid false positives
     ticket_keywords = [
         'create a ticket', 'create ticket', 'make a ticket', 'make ticket',
         'open a ticket', 'open ticket', 'submit a ticket', 'submit ticket',
@@ -176,9 +192,27 @@ def is_direct_ticket_request(query):
         'assign for further investigation', 'human support for further investigation'
     ]
     
-    # Check for any matching keywords
+    # Check for any matching keywords - but require they be somewhat prominent in the query
     all_keywords = ticket_keywords + escalation_keywords
-    return any(keyword in query_lower for keyword in all_keywords)
+    matches = [keyword for keyword in all_keywords if keyword in query_lower]
+    
+    # Only consider it a direct request if:
+    # 1. The keyword match is substantial relative to query length, OR
+    # 2. The query is relatively short and contains the keyword, OR
+    # 3. The query starts with the keyword
+    if matches:
+        for keyword in matches:
+            # If keyword takes up a significant portion of the query, it's likely a direct request
+            if len(keyword) >= len(query_lower) * 0.3:
+                return True
+            # If query is short and contains keyword, it's likely a direct request
+            if len(query_lower) <= 50 and keyword in query_lower:
+                return True
+            # If query starts with the keyword, it's likely a direct request
+            if query_lower.startswith(keyword):
+                return True
+    
+    return False
 
 
 def extract_issue_from_ticket_request(query):
@@ -212,9 +246,202 @@ def extract_issue_from_ticket_request(query):
     return query
 
 
-# In-memory storage for processors and fallback history
-processors = {}
-chat_histories = {}  # Fallback if MongoDB is not available
+def create_intelligent_ticket_simple(query: str, customer_email: str) -> Dict:
+    """
+    Simple intelligent ticket creation - extract info from query and create ticket automatically
+    """
+    try:
+        from ticket_creator import TicketCreator
+        
+        ticket_creator = TicketCreator()
+        
+        print(f"🤖 Simple intelligent analysis for query: '{query}'")
+        
+        # Extract customer info
+        customer_domain = customer_email.split('@')[-1] if customer_email else 'unknown.com'
+        domain_to_customer = {
+            'amd.com': 'AMD',
+            'novartis.com': 'Novartis',
+            'wdc.com': 'Wdc',
+            'abbott.com': 'Abbott',
+            'abbvie.com': 'Abbvie',
+            'amgen.com': 'Amgen'
+        }
+        customer = domain_to_customer.get(customer_domain, customer_domain.split('.')[0].capitalize())
+        
+        # Determine category using existing logic
+        category = ticket_creator.determine_ticket_category(query, customer, customer_email)
+        
+        # Simple priority detection
+        query_lower = query.lower()
+        if any(word in query_lower for word in ['urgent', 'critical', 'down', 'outage', 'emergency']):
+            priority = 'High'
+        elif any(word in query_lower for word in ['error', 'issue', 'problem', 'trouble']):
+            priority = 'Medium'  
+        else:
+            priority = 'Medium'
+        
+        # Simple area detection
+        area = 'General'
+        if any(word in query_lower for word in ['login', 'access', 'password', 'authentication']):
+            area = 'Access'
+        elif any(word in query_lower for word in ['database', 'db', 'sql']):
+            area = 'Database'
+        elif any(word in query_lower for word in ['network', 'connection']):
+            area = 'Network'
+        elif any(word in query_lower for word in ['application', 'app', 'system']):
+            area = 'Application'
+        
+        # Simple environment detection
+        environment = 'production'  # Default
+        if any(word in query_lower for word in ['test', 'testing', 'staging']):
+            environment = 'staging'
+        elif any(word in query_lower for word in ['dev', 'development']):
+            environment = 'development'
+        
+        print(f"🎯 Analysis results: Category={category}, Priority={priority}, Area={area}, Environment={environment}")
+        
+        # Create ticket data
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ticket_id = f"TICKET_{category}_{customer}_{timestamp}"
+        
+        # Get category-specific required and populated fields
+        ticket_config = ticket_creator.ticket_config
+        category_info = ticket_config.get("ticket_categories", {}).get(category, {})
+        required_fields = category_info.get("required_fields", {})
+        populated_fields = category_info.get("populated_fields", {})
+        
+        print(f"📋 Category {category} requires fields: {list(required_fields.keys())}")
+        print(f"🔧 Category {category} auto-populates fields: {list(populated_fields.keys())}")
+        
+        ticket_data = {
+            'ticket_id': ticket_id,
+            'category': category,
+            'customer': customer,
+            'customer_email': customer_email,
+            'original_query': query,
+            'created_date': datetime.now().isoformat(),
+            'creation_method': 'intelligent_simple',
+            'priority': priority,
+            'description': query
+        }
+        
+        # Handle category-specific required fields intelligently
+        if 'area' in required_fields:
+            ticket_data['area'] = area
+            
+        if 'affected_version' in required_fields:
+            # Try to extract version from query
+            import re
+            version_patterns = [
+                r'version\s+(\d+\.[\d.]+)',
+                r'v(\d+\.[\d.]+)',
+                r'(\d+\.[\d.]+)',
+                r'build\s+(\d+)',
+                r'release\s+(\d+\.[\d.]+)'
+            ]
+            affected_version = 'Not specified'
+            for pattern in version_patterns:
+                match = re.search(pattern, query_lower)
+                if match:
+                    affected_version = match.group(1)
+                    break
+            ticket_data['affected_version'] = affected_version
+            
+        if 'reported_environment' in required_fields:
+            ticket_data['reported_environment'] = environment
+            
+        if 'environment' in required_fields:
+            ticket_data['environment'] = environment
+        
+        # Add auto-populated fields based on category
+        for field, value in populated_fields.items():
+            if field not in ticket_data and isinstance(value, str):
+                if 'based on description' in value.lower():
+                    ticket_data[field] = f"Support Request: {query[:80]}{'...' if len(query) > 80 else ''}"
+                elif 'based on customer organization' in value.lower():
+                    customer_mapping = ticket_creator.customer_role_manager.get_customer_mapping(customer_domain)
+                    ticket_data[field] = customer_mapping.get('organization', customer)
+                elif 'current_date' in value.lower():
+                    ticket_data[field] = datetime.now().strftime('%Y-%m-%d')
+                else:
+                    ticket_data[field] = value
+            elif field not in ticket_data:
+                # Handle non-string values directly
+                ticket_data[field] = value
+        
+        print(f"✅ Final ticket data includes fields: {list(ticket_data.keys())}")
+        
+        # Save ticket to file
+        output_dir = 'ticket_simulation_output'
+        import os
+        os.makedirs(output_dir, exist_ok=True)
+        
+        filename = f"ticket_intelligent_{ticket_id.replace('TICKET_', '')}_{timestamp}.txt"
+        filepath = os.path.join(output_dir, filename)
+        
+        ticket_content = f"""INTELLIGENT AUTO-CREATED TICKET
+===============================
+
+Created using intelligent analysis of user query
+Analysis Method: Simple keyword-based detection
+
+Ticket ID: {ticket_id}
+Category: {category}
+Customer: {customer}
+Customer Email: {customer_email}
+Created: {ticket_data['created_date']}
+
+ORIGINAL QUERY:
+===============
+{query}
+
+TICKET DETAILS:
+===============
+"""
+        
+        # Add all ticket fields to content in a structured way
+        # Priority fields first
+        priority_fields = ['description', 'priority', 'area', 'affected_version', 'reported_environment', 'environment']
+        for field in priority_fields:
+            if field in ticket_data:
+                field_label = field.replace('_', ' ').title()
+                ticket_content += f"{field_label}: {ticket_data[field]}\n"
+        
+        # Then add auto-populated fields from category config
+        ticket_content += f"\nAUTO-POPULATED FIELDS (from {category} category):\n"
+        ticket_content += "=" * 50 + "\n"
+        
+        for field, value in ticket_data.items():
+            if field not in priority_fields and field not in ['ticket_id', 'category', 'customer', 'customer_email', 'original_query', 'created_date', 'creation_method']:
+                field_label = field.replace('_', ' ').title()
+                ticket_content += f"{field_label}: {value}\n"
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(ticket_content)
+        
+        print(f"✅ Intelligent ticket created: {ticket_id}")
+        print(f"💾 Saved to: {filepath}")
+        print(f"📋 Ticket contains {len(ticket_data)} fields total")
+        
+        # Generate simple confirmation message - details only in downloadable file
+        message = f"""🎫 **Support Ticket Created Successfully!**
+
+**Ticket ID:** {ticket_id}
+
+We have raised a ticket for human support and our support team will review your request. You can download the complete ticket details using the download option below.
+
+Our support agent will assist you shortly. Is there anything else I can help you with today?"""
+        
+        return {
+            'status': 'created',
+            'ticket_data': ticket_data,
+            'message': message
+        }
+        
+    except Exception as e:
+        print(f"❌ Error in simple intelligent ticket creation: {e}")
+        return {'status': 'error', 'message': f"Error creating ticket: {e}"}
 
 def create_processor_for_user(customer_email: str):
     """Create an IntelligentQueryProcessor for a specific user without prompting for email"""
@@ -280,11 +507,513 @@ async def initialize_processor(request: InitializeRequest):
         print(f"❌ Error initializing processor: {e}")
         raise HTTPException(status_code=500, detail=f"Error initializing processor: {str(e)}")
 
+async def send_status_update(status: str, step: str, icon: str = "🤖"):
+    """Send a status update in SSE format"""
+    data = {
+        "type": "status",
+        "status": status,
+        "step": step,
+        "icon": icon,
+        "timestamp": get_ist_time().isoformat()
+    }
+    return f"data: {json.dumps(data)}\n\n"
+
+async def send_final_response(response: str, show_ticket_form: bool = False, auto_ticket_created: bool = None, ticket_data: dict = None):
+    """Send the final response in SSE format"""
+    data = {
+        "type": "response", 
+        "response": response,
+        "show_ticket_form": show_ticket_form,
+        "auto_ticket_created": auto_ticket_created,
+        "ticket_data": ticket_data,
+        "timestamp": get_ist_time().isoformat()
+    }
+    return f"data: {json.dumps(data)}\n\n"
+
+@app.post("/api/chat/stream")
+async def send_message_stream(message: StreamingChatMessage):
+    """Send a message to the intelligent chatbot with streaming status updates"""
+    
+    async def generate_stream():
+        try:
+            user_id = message.user_id
+            print(f"🔵 RECEIVED STREAMING MESSAGE: '{message.message}' from user: {user_id}")
+            
+            # Send initial status
+            yield await send_status_update("🤖 Nquiry is thinking...", "initializing", "🤖")
+            await asyncio.sleep(0.1)  # Small delay for UX
+            
+            # Check if user is initialized, if not auto-initialize
+            if user_id not in processors:
+                yield await send_status_update("🔧 Setting up your session...", "initializing", "🔧")
+                
+                print(f"⚠️ User {user_id} not initialized, auto-initializing...")
+                
+                # Auto-initialize the user
+                from tools.mindtouch_tool import MindTouchTool
+                try:
+                    mindtouch_tool = MindTouchTool(customer_email=user_id)
+                    org_data = mindtouch_tool.get_customer_info()
+                except Exception as e:
+                    print(f"⚠️ Warning: Could not get customer info for auto-initialization: {e}")
+                    # Fallback organization data
+                    org_data = {
+                        'email': user_id,
+                        'organization': 'Unknown',
+                        'role': 'Unknown', 
+                        'available_roles': [],
+                        'domain': user_id.split('@')[1] if '@' in user_id else None,
+                        'dynamic_mapping': False
+                    }
+                
+                # Store the customer info for processor initialization
+                processors[user_id] = {
+                    'customer_email': user_id,
+                    'org_data': org_data,
+                    'processor': None  # Will be initialized below
+                }
+                
+                print(f"✅ Auto-initialized user {user_id} ({org_data.get('organization')})")
+            
+            user_data = processors[user_id]
+            
+            # Initialize the actual processor if not done yet
+            if user_data['processor'] is None:
+                yield await send_status_update("🧠 Preparing AI assistant...", "loading", "🧠")
+                print(f"🧠 Creating IntelligentQueryProcessor for {user_id}...")
+                # Create a custom processor that doesn't prompt for email
+                processor = create_processor_for_user(user_data['customer_email'])
+                user_data['processor'] = processor
+            
+            processor = user_data['processor']
+            
+            # Store message in history
+            yield await send_status_update("💾 Saving your message...", "saving", "💾")
+            if chat_history_manager:
+                chat_history_manager.add_message(user_id, "user", message.message, message.session_id)
+                # Get history from MongoDB for context
+                history = chat_history_manager.get_history(user_id)
+            else:
+                # Fallback to in-memory storage
+                if user_id not in chat_histories:
+                    chat_histories[user_id] = []
+                chat_histories[user_id].append({
+                    "role": "user",
+                    "message": message.message,
+                    "timestamp": get_ist_time()
+                })
+                history = chat_histories.get(user_id, [])
+
+            # Process with the real nQuiry intelligent system
+            print(f"🧠 Processing with IntelligentQueryProcessor: '{message.message}'")
+            
+            # Check if this is a greeting message first
+            yield await send_status_update("👋 Checking message type...", "analyzing", "🔍")
+            print(f"🔍 Checking if '{message.message}' is a greeting...")
+            is_greeting, greeting_response = is_greeting_message(message.message)
+            print(f"🔍 Greeting check result: is_greeting={is_greeting}")
+            
+            if is_greeting:
+                print(f"👋 Greeting detected, responding with: {greeting_response[:50]}...")
+                
+                # Store bot response in history
+                if chat_history_manager:
+                    chat_history_manager.add_message(user_id, "assistant", greeting_response, message.session_id)
+                else:
+                    chat_histories[user_id].append({
+                        "role": "assistant", 
+                        "message": greeting_response,
+                        "timestamp": get_ist_time()
+                    })
+                
+                yield await send_final_response(greeting_response, show_ticket_form=False)
+                return
+            
+            # Check if user is indicating satisfaction/completion
+            print(f"🔍 Checking if '{message.message}' indicates satisfaction...")
+            is_satisfied, satisfaction_response = is_satisfaction_response(message.message)
+            print(f"🔍 Satisfaction check result: is_satisfied={is_satisfied}")
+            
+            if is_satisfied:
+                print(f"✅ User satisfaction detected, sending closing message...")
+                
+                # Store bot response in history
+                if chat_history_manager:
+                    chat_history_manager.add_message(user_id, "assistant", satisfaction_response, message.session_id)
+                else:
+                    chat_histories[user_id].append({
+                        "role": "assistant", 
+                        "message": satisfaction_response,
+                        "timestamp": get_ist_time()
+                    })
+                
+                yield await send_final_response(satisfaction_response, show_ticket_form=False)
+                return
+            
+            show_ticket = False  # Initialize ticket flag
+            
+            # Convert MongoDB history format to the format expected by IntelligentQueryProcessor
+            processed_history = []
+            if history:
+                for msg in history:
+                    if isinstance(msg, dict):
+                        # Handle MongoDB format
+                        if 'role' in msg and 'content' in msg:
+                            processed_history.append({
+                                'role': msg['role'],
+                                'message': msg['content'],
+                                'timestamp': msg.get('timestamp')
+                            })
+                        elif 'role' in msg and 'message' in msg:
+                            processed_history.append(msg)
+                        # Handle fallback format
+                        elif 'type' in msg:
+                            processed_history.append({
+                                'role': msg['type'],  # 'user' or 'assistant'
+                                'message': msg['message'],
+                                'timestamp': msg.get('timestamp')
+                            })
+            
+            # Check if user is responding positively to a ticket creation suggestion
+            if processed_history and len(processed_history) > 0:
+                yield await send_status_update("🔍 Analyzing conversation context...", "analyzing", "🔍")
+                print(f"🔍 Checking conversation history for ticket creation context...")
+                print(f"🔍 History length: {len(processed_history)}")
+                
+                last_bot_message = None
+                for msg in reversed(processed_history):
+                    if msg.get('role') == 'assistant':
+                        last_bot_message = msg.get('message', '')
+                        print(f"🔍 Found last bot message: '{last_bot_message[:100]}...'")
+                        break
+                
+                # Check if the last bot message asked about creating a ticket
+                if last_bot_message and any(phrase in last_bot_message.lower() for phrase in [
+                    'would you like me to create a support ticket',
+                    'would you like to create a ticket',
+                    'create a support ticket',
+                    'should i create a ticket',
+                    'create a support ticket?',
+                    'need a support ticket?',
+                    'does this help?',
+                    'need more help?',
+                    'create a support ticket so',
+                    'would you like me to create a support ticket so'
+                ]):
+                    print(f"🔍 Last bot message contained ticket creation suggestion: '{last_bot_message[:100]}...'")
+                    
+                    # Check if current user message is affirmative
+                    user_message_lower = message.message.lower().strip()
+                    print(f"🔍 User response: '{user_message_lower}'")
+                    
+                    affirmative_responses = [
+                        'yes', 'yeah', 'yep', 'sure', 'okay', 'ok', 'please', 'go ahead',
+                        'create ticket', 'create a ticket', 'yes please', 'yes, please',
+                        'proceed', 'continue', 'that would be great', 'sounds good'
+                    ]
+                    
+                    is_affirmative = any(response in user_message_lower for response in affirmative_responses)
+                    print(f"🔍 Is affirmative response: {is_affirmative}")
+                    
+                    if is_affirmative:
+                        print(f"🎫 User confirmed ticket creation with: '{message.message}'")
+                        
+                        yield await send_status_update("🎫 Creating your support ticket...", "creating-ticket", "🎫")
+                        
+                        # Extract the original issue from conversation history for ticket creation
+                        original_query = "Support assistance requested"
+                        for msg in processed_history:
+                            if msg.get('role') == 'user' and len(msg.get('message', '')) > 10:
+                                original_query = msg.get('message', original_query)
+                                break
+                        
+                        # Create intelligent ticket automatically since user confirmed
+                        print(f"🤖 Creating intelligent ticket for confirmed request: '{original_query}'")
+                        ticket_result = create_intelligent_ticket_simple(original_query, user_id)
+                        
+                        if ticket_result.get('status') == 'created':
+                            print("✅ Intelligent ticket created successfully after user confirmation!")
+                            
+                            auto_response = ticket_result.get('message', '')
+                            if chat_history_manager:
+                                chat_history_manager.add_message(user_id, "assistant", auto_response, message.session_id)
+                            else:
+                                chat_histories[user_id].append({
+                                    "role": "assistant", 
+                                    "message": auto_response,
+                                    "timestamp": get_ist_time()
+                                })
+                            
+                            yield await send_final_response(
+                                auto_response,
+                                show_ticket_form=False,
+                                auto_ticket_created=True,
+                                ticket_data=ticket_result.get('ticket_data')
+                            )
+                            return
+                        else:
+                            # Fall back to form if intelligent creation fails
+                            print("⚠️ Intelligent ticket creation failed, showing form...")
+                            yield await send_final_response(
+                                f"I'll help you create a support ticket. Please provide the required details below.",
+                                show_ticket_form=True
+                            )
+                            return
+                    
+                    # Check if user declined ticket creation
+                    negative_responses = [
+                        'no', 'nope', 'no thanks', 'no thank you', 'not now', 'maybe later',
+                        'i\'m good', 'im good', 'that\'s fine', 'thats fine', 'all good',
+                        'no need', 'not necessary', 'i\'ll manage', 'ill manage'
+                    ]
+                    
+                    if any(response in user_message_lower for response in negative_responses):
+                        print(f"❌ User declined ticket creation with: '{message.message}'")
+                        
+                        # Store the decline response in history
+                        decline_response = """No problem! 👍 
+
+I'm glad the information I provided was helpful. If you need any assistance in the future or have other questions, please don't hesitate to ask.
+
+Is there anything else I can help you with today?"""
+                        
+                        if chat_history_manager:
+                            chat_history_manager.add_message(user_id, "assistant", decline_response, message.session_id)
+                        else:
+                            chat_histories[user_id].append({
+                                "role": "assistant", 
+                                "message": decline_response,
+                                "timestamp": get_ist_time()
+                            })
+                        
+                        yield await send_final_response(decline_response, show_ticket_form=False)
+                        return
+
+            # First check if this is a direct ticket creation request
+            yield await send_status_update("🔍 Analyzing your request...", "analyzing", "🔍")
+            is_direct_request = is_direct_ticket_request(message.message)
+            print(f"🔍 Direct ticket request check: is_direct={is_direct_request} for query: '{message.message}'")
+            
+            if is_direct_request:
+                print(f"🎫 Direct ticket creation request detected for: '{message.message}'")
+                
+                # Check if this is an escalation request (should auto-create ticket)
+                query_lower = message.message.lower().strip()
+                escalation_phrases = [
+                    'assign it to human support', 'assign to human support', 'escalate to support',
+                    'escalate to human support', 'escalate to support team', 'need human assistance',
+                    'need human help', 'transfer to human', 'human support', 'speak to a human',
+                    'talk to a human', 'contact human support', 'get human help',
+                    'assign to support team', 'escalate this issue', 'escalate this to support',
+                    'forward to support', 'send to support team', 'human intervention needed',
+                    'need manual assistance', 'require human support', 'human review needed',
+                    'assign for further investigation', 'human support for further investigation'
+                ]
+                
+                is_escalation = any(phrase in query_lower for phrase in escalation_phrases)
+                actual_issue = extract_issue_from_ticket_request(message.message)
+                
+                if is_escalation:
+                    # For escalation requests, ask for confirmation first
+                    response_text = f"🎫 **Escalating to Human Support**\n\nI understand you need human assistance with: {actual_issue}\n\nWould you like me to create a support ticket to escalate this to our support team?"
+                    yield await send_final_response(response_text, show_ticket_form=False)
+                    return
+                else:
+                    # For explicit ticket creation requests, create ticket intelligently
+                    yield await send_status_update("🎫 Creating your support ticket...", "creating-ticket", "🎫")
+                    print(f"🎫 User explicitly requested ticket creation, creating intelligent ticket...")
+                    
+                    # Create intelligent ticket automatically for explicit requests
+                    ticket_result = create_intelligent_ticket_simple(actual_issue, user_id)
+                    
+                    if ticket_result.get('status') == 'created':
+                        print("✅ Intelligent ticket created successfully for explicit request!")
+                        
+                        auto_response = ticket_result.get('message', '')
+                        if chat_history_manager:
+                            chat_history_manager.add_message(user_id, "assistant", auto_response, message.session_id)
+                        else:
+                            if user_id not in chat_histories:
+                                chat_histories[user_id] = []
+                            chat_histories[user_id].append({
+                                "role": "assistant", 
+                                "message": auto_response,
+                                "timestamp": get_ist_time()
+                            })
+                        
+                        yield await send_final_response(
+                            auto_response,
+                            show_ticket_form=False,
+                            auto_ticket_created=True,
+                            ticket_data=ticket_result.get('ticket_data')
+                        )
+                        return
+                    else:
+                        # Fall back to form if intelligent creation fails
+                        print("⚠️ Intelligent ticket creation failed for explicit request, showing form...")
+                        
+                        # Store the request acknowledgment in history
+                        acknowledgment = f"I'll help you create a support ticket for: {actual_issue}\n\nPlease provide the required details below."
+                        
+                        if chat_history_manager:
+                            chat_history_manager.add_message(user_id, "assistant", acknowledgment, message.session_id)
+                        else:
+                            if user_id not in chat_histories:
+                                chat_histories[user_id] = []
+                            chat_histories[user_id].append({
+                                "role": "assistant", 
+                                "message": acknowledgment,
+                                "timestamp": get_ist_time()
+                            })
+                        
+                        yield await send_final_response(
+                            acknowledgment,
+                            show_ticket_form=True
+                        )
+                        return
+            else:
+                # If not a direct ticket request, process through intelligent search flow first
+                print(f"📚 Query '{message.message}' -> Using search flow first: JIRA → MindTouch → Comprehensive Response")
+                
+                # Send search status updates
+                yield await send_status_update("🎫 Looking through JIRA tickets...", "searching-jira", "🎫")
+                await asyncio.sleep(1.5)  # Simulate search time
+                
+                yield await send_status_update("📚 Searching MindTouch articles...", "searching-mindtouch", "📚")
+                await asyncio.sleep(1.5)  # Simulate search time
+                
+                yield await send_status_update("🧠 Generating response...", "generating", "🧠")
+                
+                try:
+                    # First, try to find helpful information through search
+                    print("🔍 Searching for information: JIRA → MindTouch → Comprehensive Response")
+                    result = processor.process_query(user_id, message.message, processed_history)
+                    
+                    if result and isinstance(result, dict):
+                        # Handle process_query result
+                        if 'formatted_response' in result:
+                            response_text = result['formatted_response']
+                        elif 'response' in result:
+                            response_text = result['response']
+                        else:
+                            response_text = str(result)
+                        
+                        # Check if this is a ticket creation flow or if ticket was created
+                        if result.get('ticket_created'):
+                            # Ticket was already created in the process - don't show form
+                            show_ticket = False
+                        else:
+                            # Evaluate the quality of the response to determine if we should offer ticket creation
+                            print("🤖 Evaluating search response quality...")
+                            
+                            # Check if response indicates insufficient information
+                            insufficient_indicators = [
+                                'i searched through jira tickets and documentation but couldn\'t find specific information',
+                                'unfortunately, no specific resolution steps are provided',
+                                'i cannot provide actionable steps',
+                                'no resolution details are included',
+                                'more context is needed',
+                                'further investigation is required',
+                                'does not contain complete details',
+                                'without more details',
+                                'i couldn\'t find',
+                                'no relevant information',
+                                'no specific information',
+                                'couldn\'t locate',
+                                'no documents found',
+                                'no search results',
+                                'unable to find',
+                                'no matching',
+                                'not found in',
+                                'no information available',
+                                'couldn\'t retrieve',
+                                'no results',
+                                'search didn\'t return',
+                                'no documentation',
+                                'no relevant documents',
+                                'no specific details'
+                            ]
+                            
+                            response_lower = response_text.lower()
+                            is_insufficient = any(indicator in response_lower for indicator in insufficient_indicators)
+                            
+                            # Check if response has good/helpful content
+                            has_good_content = any(phrase in response_lower for phrase in [
+                                'here\'s what i found',
+                                'according to',
+                                'based on the documentation',
+                                'the following information',
+                                'here are the steps',
+                                'you can',
+                                'to resolve this',
+                                'the solution is',
+                                'try the following',
+                                'here\'s how to',
+                                'the process involves',
+                                'follow these steps',
+                                'navigate to',
+                                'to enable',
+                                'to configure',
+                                'click on'
+                            ])
+                            
+                            if is_insufficient and not has_good_content:
+                                # No helpful information found - offer to create intelligent ticket
+                                print("📋 No helpful information found - offering to create intelligent ticket...")
+                                
+                                response_text += f"\n\n🎫 **No specific information found**\n\nI wasn't able to find detailed information about your question in our documentation. Would you like me to create a support ticket so our technical team can provide you with the specific guidance you need?"
+                                show_ticket = False  # Wait for user confirmation
+                            elif has_good_content:
+                                # Found helpful information - ticket creation offer already included in response
+                                print("✅ Found helpful information - ticket creation offer already included in response")
+                                show_ticket = False  # Wait for user confirmation
+                            else:
+                                # Mixed/unclear response - offer ticket creation
+                                print("🤔 Unclear response quality - offering ticket creation...")
+                                response_text += f"\n\n🤝 **Need more help?**\n\nIf you need more detailed assistance with this, I can create a support ticket to connect you with our technical team."
+                                show_ticket = False  # Wait for user confirmation
+                            
+                    elif result:
+                        response_text = str(result)
+                        # For basic string responses, offer ticket creation
+                        response_text += f"\n\n🎫 **Need a support ticket?**\n\nIf you need more detailed assistance, I can create a support ticket to get this resolved by our support team."
+                        show_ticket = False
+                    else:
+                        response_text = "I apologize, but I encountered an issue processing your request. Would you like me to create a support ticket to get this resolved for you?"
+                        show_ticket = False
+                    
+                except Exception as e:
+                    print(f"❌ Error in intelligent processing: {e}")
+                    response_text = f"I encountered an error while processing your request: {str(e)}\n\nWould you like me to create a support ticket to get this resolved for you?"
+                    show_ticket = False
+                
+            # Store bot response in history
+            if chat_history_manager:
+                chat_history_manager.add_message(user_id, "assistant", response_text, message.session_id)
+            else:
+                chat_histories[user_id].append({
+                    "role": "assistant", 
+                    "message": response_text,
+                    "timestamp": get_ist_time()
+                })
+            
+            yield await send_final_response(response_text, show_ticket_form=show_ticket)
+            
+        except Exception as e:
+            print(f"❌ Error in streaming chat: {e}")
+            yield await send_final_response(
+                f"I encountered an error processing your request: {str(e)}\n\nPlease try again or contact support.",
+                show_ticket_form=False
+            )
+    
+    return StreamingResponse(generate_stream(), media_type="text/plain")
+
 @app.post("/api/chat", response_model=ChatResponse)
 async def send_message(message: ChatMessage):
     """Send a message to the intelligent chatbot"""
     try:
         user_id = message.user_id
+        print(f"🔵 RECEIVED MESSAGE: '{message.message}' from user: {user_id}")
         
         # Check if user is initialized, if not auto-initialize
         if user_id not in processors:
@@ -418,10 +1147,14 @@ async def send_message(message: ChatMessage):
         
         # Check if user is responding positively to a ticket creation suggestion
         if processed_history and len(processed_history) > 0:
+            print(f"🔍 Checking conversation history for ticket creation context...")
+            print(f"🔍 History length: {len(processed_history)}")
+            
             last_bot_message = None
             for msg in reversed(processed_history):
                 if msg.get('role') == 'assistant':
                     last_bot_message = msg.get('message', '')
+                    print(f"🔍 Found last bot message: '{last_bot_message[:100]}...'")
                     break
             
             # Check if the last bot message asked about creating a ticket
@@ -429,18 +1162,32 @@ async def send_message(message: ChatMessage):
                 'would you like me to create a support ticket',
                 'would you like to create a ticket',
                 'create a support ticket',
-                'should i create a ticket'
+                'should i create a ticket',
+                'create a support ticket?',
+                'need a support ticket?',
+                'does this help?',
+                'need more help?',
+                'create a support ticket so',
+                'would you like me to create a support ticket so'
             ]):
+                print(f"🔍 Last bot message contained ticket creation suggestion: '{last_bot_message[:100]}...'")
+                
                 # Check if current user message is affirmative
                 user_message_lower = message.message.lower().strip()
+                print(f"🔍 User response: '{user_message_lower}'")
+                
                 affirmative_responses = [
                     'yes', 'yeah', 'yep', 'sure', 'okay', 'ok', 'please', 'go ahead',
                     'create ticket', 'create a ticket', 'yes please', 'yes, please',
                     'proceed', 'continue', 'that would be great', 'sounds good'
                 ]
                 
-                if any(response in user_message_lower for response in affirmative_responses):
+                is_affirmative = any(response in user_message_lower for response in affirmative_responses)
+                print(f"🔍 Is affirmative response: {is_affirmative}")
+                
+                if is_affirmative:
                     print(f"🎫 User confirmed ticket creation with: '{message.message}'")
+                    
                     # Extract the original issue from conversation history for ticket creation
                     original_query = "Support assistance requested"
                     for msg in processed_history:
@@ -448,13 +1195,38 @@ async def send_message(message: ChatMessage):
                             original_query = msg.get('message', original_query)
                             break
                     
-                    # Show ticket form immediately since user confirmed
-                    return ChatResponse(
-                        response=f"Perfect! I'll help you create a support ticket. Please provide the required details below.",
-                        show_ticket_form=True,
-                        ticket_query=original_query,
-                        is_escalation=False
-                    )
+                    # Create intelligent ticket automatically since user confirmed
+                    print(f"🤖 Creating intelligent ticket for confirmed request: '{original_query}'")
+                    ticket_result = create_intelligent_ticket_simple(original_query, user_id)
+                    
+                    if ticket_result.get('status') == 'created':
+                        print("✅ Intelligent ticket created successfully after user confirmation!")
+                        
+                        auto_response = ticket_result.get('message', '')
+                        if chat_history_manager:
+                            chat_history_manager.add_message(user_id, "assistant", auto_response, message.session_id)
+                        else:
+                            chat_histories[user_id].append({
+                                "role": "assistant", 
+                                "message": auto_response,
+                                "timestamp": get_ist_time()
+                            })
+                        
+                        return ChatResponse(
+                            response=auto_response,
+                            show_ticket_form=False,
+                            auto_ticket_created=True,
+                            ticket_data=ticket_result.get('ticket_data')
+                        )
+                    else:
+                        # Fall back to form if intelligent creation fails
+                        print("⚠️ Intelligent ticket creation failed, showing form...")
+                        return ChatResponse(
+                            response=f"I'll help you create a support ticket. Please provide the required details below.",
+                            show_ticket_form=True,
+                            ticket_query=original_query,
+                            is_escalation=False
+                        )
                 
                 # Check if user declined ticket creation
                 negative_responses = [
@@ -488,7 +1260,10 @@ Is there anything else I can help you with today?"""
                     )
 
         # First check if this is a direct ticket creation request (like Streamlit does)
-        if is_direct_ticket_request(message.message):
+        is_direct_request = is_direct_ticket_request(message.message)
+        print(f"🔍 Direct ticket request check: is_direct={is_direct_request} for query: '{message.message}'")
+        
+        if is_direct_request:
             print(f"🎫 Direct ticket creation request detected for: '{message.message}'")
             
             # Check if this is an escalation request (should auto-create ticket)
@@ -512,35 +1287,63 @@ Is there anything else I can help you with today?"""
                 response_text = f"🎫 **Escalating to Human Support**\n\nI understand you need human assistance with: {actual_issue}\n\nWould you like me to create a support ticket to escalate this to our support team?"
                 show_ticket = False
             else:
-                # For explicit ticket creation requests, show the form directly
-                print(f"🎫 User explicitly requested ticket creation, showing form directly")
+                # For explicit ticket creation requests, create ticket intelligently instead of showing form
+                print(f"🎫 User explicitly requested ticket creation, creating intelligent ticket...")
                 
-                # Store the request acknowledgment in history
-                acknowledgment = f"Perfect! I'll help you create a support ticket for: {actual_issue}\n\nPlease provide the required details below."
+                # Create intelligent ticket automatically for explicit requests
+                ticket_result = create_intelligent_ticket_simple(actual_issue, user_id)
                 
-                if chat_history_manager:
-                    chat_history_manager.add_message(user_id, "assistant", acknowledgment, message.session_id)
+                if ticket_result.get('status') == 'created':
+                    print("✅ Intelligent ticket created successfully for explicit request!")
+                    
+                    auto_response = ticket_result.get('message', '')
+                    if chat_history_manager:
+                        chat_history_manager.add_message(user_id, "assistant", auto_response, message.session_id)
+                    else:
+                        if user_id not in chat_histories:
+                            chat_histories[user_id] = []
+                        chat_histories[user_id].append({
+                            "role": "assistant", 
+                            "message": auto_response,
+                            "timestamp": get_ist_time()
+                        })
+                    
+                    return ChatResponse(
+                        response=auto_response,
+                        show_ticket_form=False,
+                        auto_ticket_created=True,
+                        ticket_data=ticket_result.get('ticket_data')
+                    )
                 else:
-                    if user_id not in chat_histories:
-                        chat_histories[user_id] = []
-                    chat_histories[user_id].append({
-                        "role": "assistant", 
-                        "message": acknowledgment,
-                        "timestamp": get_ist_time()
-                    })
-                
-                return ChatResponse(
-                    response=acknowledgment,
-                    show_ticket_form=True,
-                    ticket_query=actual_issue,
-                    is_escalation=False
-                )
+                    # Fall back to form if intelligent creation fails
+                    print("⚠️ Intelligent ticket creation failed for explicit request, showing form...")
+                    
+                    # Store the request acknowledgment in history
+                    acknowledgment = f"I'll help you create a support ticket for: {actual_issue}\n\nPlease provide the required details below."
+                    
+                    if chat_history_manager:
+                        chat_history_manager.add_message(user_id, "assistant", acknowledgment, message.session_id)
+                    else:
+                        if user_id not in chat_histories:
+                            chat_histories[user_id] = []
+                        chat_histories[user_id].append({
+                            "role": "assistant", 
+                            "message": acknowledgment,
+                            "timestamp": get_ist_time()
+                        })
+                    
+                    return ChatResponse(
+                        response=acknowledgment,
+                        show_ticket_form=True,
+                        ticket_query=actual_issue,
+                        is_escalation=False
+                    )
         else:
-            # If not a direct ticket request, process through intelligent search flow
-            print(f"📚 Query '{message.message}' -> Using intelligent search flow: JIRA → MindTouch → Comprehensive Response → Ticket Option")
+            # If not a direct ticket request, process through intelligent search flow first
+            print(f"📚 Query '{message.message}' -> Using search flow first: JIRA → MindTouch → Comprehensive Response")
             try:
-                # Always use process_query method which handles the proper JIRA → MindTouch → Bedrock → Ticket flow
-                print("🔍 Using intelligent search flow: JIRA → MindTouch → Comprehensive Response → Ticket Option")
+                # First, try to find helpful information through search
+                print("🔍 Searching for information: JIRA → MindTouch → Comprehensive Response")
                 result = processor.process_query(user_id, message.message, processed_history)
                 
                 if result and isinstance(result, dict):
@@ -554,25 +1357,93 @@ Is there anything else I can help you with today?"""
                     
                     # Check if this is a ticket creation flow or if ticket was created
                     if result.get('ticket_created'):
-                        # Ticket was actually created - don't show form
-                        response_text = result.get('ticket_created', response_text)
+                        # Ticket was already created in the process - don't show form
                         show_ticket = False
                     else:
-                        # Don't auto-show ticket form - wait for user to explicitly request it
-                        # The response already asks if they want to create a ticket
-                        show_ticket = False
+                        # Evaluate the quality of the response to determine if we should offer ticket creation
+                        print("🤖 Evaluating search response quality...")
+                        
+                        # Check if response indicates insufficient information
+                        insufficient_indicators = [
+                            'i searched through jira tickets and documentation but couldn\'t find specific information',
+                            'unfortunately, no specific resolution steps are provided',
+                            'i cannot provide actionable steps',
+                            'no resolution details are included',
+                            'more context is needed',
+                            'further investigation is required',
+                            'does not contain complete details',
+                            'without more details',
+                            'i couldn\'t find',
+                            'no relevant information',
+                            'no specific information',
+                            'couldn\'t locate',
+                            'no documents found',
+                            'no search results',
+                            'unable to find',
+                            'no matching',
+                            'not found in',
+                            'no information available',
+                            'couldn\'t retrieve',
+                            'no results',
+                            'search didn\'t return',
+                            'no documentation',
+                            'no relevant documents',
+                            'no specific details'
+                        ]
+                        
+                        response_lower = response_text.lower()
+                        is_insufficient = any(indicator in response_lower for indicator in insufficient_indicators)
+                        
+                        # Check if response has good/helpful content
+                        has_good_content = any(phrase in response_lower for phrase in [
+                            'here\'s what i found',
+                            'according to',
+                            'based on the documentation',
+                            'the following information',
+                            'here are the steps',
+                            'you can',
+                            'to resolve this',
+                            'the solution is',
+                            'try the following',
+                            'here\'s how to',
+                            'the process involves',
+                            'follow these steps',
+                            'navigate to',
+                            'to enable',
+                            'to configure',
+                            'click on'
+                        ])
+                        
+                        if is_insufficient and not has_good_content:
+                            # No helpful information found - offer to create intelligent ticket
+                            print("📋 No helpful information found - offering to create intelligent ticket...")
+                            
+                            response_text += f"\n\n🎫 **No specific information found**\n\nI wasn't able to find detailed information about your question in our documentation. Would you like me to create a support ticket so our technical team can provide you with the specific guidance you need?"
+                            show_ticket = False  # Wait for user confirmation
+                        elif has_good_content:
+                            # Found helpful information - ticket creation offer already added by semantic search
+                            print("✅ Found helpful information - ticket creation offer already included in response")
+                            show_ticket = False  # Wait for user confirmation
+                        else:
+                            # Mixed/unclear response - offer ticket creation
+                            print("🤔 Unclear response quality - offering ticket creation...")
+                            response_text += f"\n\n🤝 **Need more help?**\n\nIf you need more detailed assistance with this, I can create a support ticket to connect you with our technical team."
+                            show_ticket = False  # Wait for user confirmation
+                        
                 elif result:
                     response_text = str(result)
+                    # For basic string responses, offer ticket creation
+                    response_text += f"\n\n🎫 **Need a support ticket?**\n\nIf you need more detailed assistance, I can create a support ticket to get this resolved by our support team."
+                    show_ticket = False
                 else:
-                    response_text = "I apologize, but I couldn't find relevant information for your query. Would you like me to create a support ticket to get this resolved?"
-                    # Don't auto-show form, wait for confirmation
+                    # No result at all - suggest ticket creation
+                    response_text = "I apologize, but I couldn't find relevant information for your query in our documentation.\n\n🎫 **Create a support ticket?**\n\nWould you like me to create a support ticket so our technical team can help you with this specific question?"
                     show_ticket = False
                     
             except Exception as e:
                 print(f"⚠️ Error in intelligent processing: {e}")
                 org_name = user_data['org_data'].get('organization', 'your organization')
-                response_text = f"I encountered an issue while searching our knowledge base for {org_name}. Would you like me to create a support ticket to ensure your question gets properly addressed?"
-                # Don't auto-show form, wait for confirmation
+                response_text = f"I encountered an issue while searching our knowledge base for {org_name}.\n\n🎫 **Create a support ticket?**\n\nWould you like me to create a support ticket to ensure your question gets properly addressed?"
                 show_ticket = False
         
         # Store bot response in history (MongoDB or fallback)
@@ -671,6 +1542,12 @@ class TicketRequest(BaseModel):
     # Allow any additional fields dynamically
     class Config:
         extra = "allow"
+
+class IntelligentTicketAnswers(BaseModel):
+    original_query: str
+    customer_email: str
+    answers: Dict[str, Any]
+    analysis: Dict[str, Any]
 
 @app.post("/api/tickets/create")
 async def create_ticket(ticket_request: TicketRequest):
@@ -792,6 +1669,234 @@ ADDITIONAL FIELDS:
         return {
             "status": "error", 
             "message": f"Failed to create ticket: {str(e)}"
+        }
+
+@app.post("/api/tickets/create-with-answers")
+async def create_ticket_with_answers(request: IntelligentTicketAnswers):
+    """Complete ticket creation after user answers targeted questions"""
+    try:
+        from intelligent_auto_ticket_creator import IntelligentAutoTicketCreator
+        
+        # Create intelligent ticket creator
+        auto_ticket_creator = IntelligentAutoTicketCreator()
+        
+        # Complete ticket creation with the provided answers
+        result = auto_ticket_creator.complete_ticket_with_answers(
+            query=request.original_query,
+            customer_email=request.customer_email,
+            analysis=request.analysis,
+            answers=request.answers
+        )
+        
+        if result.get('status') == 'created':
+            ticket_data = result.get('ticket_data', {})
+            
+            # Generate JIRA ticket ID
+            category = ticket_data.get('category', 'GENERAL')
+            import random
+            random_number = random.randint(10000, 99999)
+            jira_ticket_id = f"{category}-{random_number}"
+            ticket_data['jira_ticket_id'] = jira_ticket_id
+            
+            # Generate ticket content for download
+            ticket_content = f"""NQUIRY INTELLIGENT AUTO-TICKET
+===============================
+
+Created automatically using AI analysis and user input
+Creation Method: {ticket_data.get('creation_method', 'intelligent_auto')}
+AI Completeness Score: {ticket_data.get('completeness_score', 1.0):.1%}
+
+Ticket ID: {ticket_data.get('ticket_id', 'N/A')}
+JIRA Ticket: {jira_ticket_id}
+Category: {ticket_data.get('category', 'N/A')}
+Customer: {ticket_data.get('customer', 'N/A')}
+Customer Email: {ticket_data.get('customer_email', 'N/A')}
+Created: {ticket_data.get('created_date', 'N/A')}
+
+ORIGINAL QUERY:
+===============
+{ticket_data.get('original_query', 'N/A')}
+
+TICKET DETAILS:
+===============
+Priority: {ticket_data.get('priority', 'N/A')}
+Area Affected: {ticket_data.get('area', ticket_data.get('affected_area', 'N/A'))}
+Environment: {ticket_data.get('environment', 'N/A')}
+Description: {ticket_data.get('description', 'N/A')}
+
+USER PROVIDED ANSWERS:
+=====================
+"""
+            
+            # Add user answers
+            for key, value in request.answers.items():
+                ticket_content += f"{key.replace('_', ' ').title()}: {value}\n"
+            
+            # Add AI analysis info
+            if request.analysis:
+                ticket_content += f"""
+
+AI ANALYSIS:
+============
+Reasoning: {request.analysis.get('reasoning', 'N/A')}
+Auto-detected Category: {request.analysis.get('category', 'N/A')}
+Auto-detected Priority: {request.analysis.get('priority', 'N/A')}
+"""
+            
+            # Store response in chat history
+            response_message = result.get('message', 'Ticket created successfully!')
+            if chat_history_manager:
+                chat_history_manager.add_message(request.customer_email, "assistant", response_message, None)
+            else:
+                if request.customer_email not in chat_histories:
+                    chat_histories[request.customer_email] = []
+                chat_histories[request.customer_email].append({
+                    "role": "assistant",
+                    "message": response_message,
+                    "timestamp": get_ist_time()
+                })
+            
+            return {
+                "status": "success",
+                "message": response_message,
+                "ticket_data": {
+                    "ticket_id": ticket_data.get('ticket_id'),
+                    "jira_ticket_id": jira_ticket_id,
+                    "category": ticket_data.get('category'),
+                    "customer": ticket_data.get('customer'),
+                    "customer_email": ticket_data.get('customer_email'),
+                    "priority": ticket_data.get('priority'),
+                    "description": ticket_data.get('description')
+                },
+                "downloadable_content": ticket_content,
+                "filename": f"ticket_auto_{ticket_data.get('category', 'UNKNOWN')}_{ticket_data.get('customer', 'UNKNOWN')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                "auto_created": True,
+                "refresh_chat": True
+            }
+        else:
+            return {
+                "status": "error",
+                "message": result.get('message', 'Failed to create ticket')
+            }
+            
+    except Exception as e:
+        print(f"❌ Error creating ticket with answers: {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to create ticket: {str(e)}"
+        }
+
+@app.post("/api/tickets/create-minimal")
+async def create_minimal_ticket(request: Dict[str, str]):
+    """Create ticket with minimal user interaction - extract everything from query"""
+    try:
+        from rule_based_ticket_creator import RuleBasedTicketCreator
+        
+        query = request.get('query', '')
+        customer_email = request.get('customer_email', '')
+        
+        if not query or not customer_email:
+            return {
+                "status": "error",
+                "message": "Query and customer email are required"
+            }
+        
+        # Create rule-based ticket creator
+        auto_ticket_creator = RuleBasedTicketCreator()
+        
+        # Create ticket with minimal communication
+        result = auto_ticket_creator.create_automatic_ticket_rule_based(
+            query=query,
+            customer_email=customer_email,
+            force_create=True  # Force creation for testing
+        )
+        
+        if result.get('status') == 'created':
+            ticket_data = result.get('ticket_data', {})
+            
+            # Generate JIRA ticket ID
+            category = ticket_data.get('category', 'GENERAL')
+            import random
+            random_number = random.randint(10000, 99999)
+            jira_ticket_id = f"{category}-{random_number}"
+            ticket_data['jira_ticket_id'] = jira_ticket_id
+            
+            # Store response in chat history
+            response_message = result.get('message', 'Ticket created automatically!')
+            if chat_history_manager:
+                chat_history_manager.add_message(customer_email, "assistant", response_message, None)
+            else:
+                if customer_email not in chat_histories:
+                    chat_histories[customer_email] = []
+                chat_histories[customer_email].append({
+                    "role": "assistant",
+                    "message": response_message,
+                    "timestamp": get_ist_time()
+                })
+            
+            return {
+                "status": "success",
+                "message": response_message,
+                "ticket_data": {
+                    "ticket_id": ticket_data.get('ticket_id'),
+                    "jira_ticket_id": jira_ticket_id,
+                    "category": ticket_data.get('category'),
+                    "customer": ticket_data.get('customer'),
+                    "priority": ticket_data.get('priority'),
+                    "description": ticket_data.get('description')
+                },
+                "auto_created": True,
+                "minimal_communication": True,
+                "rule_based": True,
+                "refresh_chat": True
+            }
+        else:
+            return {
+                "status": "error",
+                "message": result.get('message', 'Failed to create minimal ticket')
+            }
+            
+    except Exception as e:
+        print(f"❌ Error creating minimal ticket: {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to create ticket: {str(e)}"
+        }
+
+@app.post("/api/tickets/test-rule-based")
+async def test_rule_based_creation():
+    """Test endpoint for rule-based ticket creation"""
+    try:
+        from rule_based_ticket_creator import RuleBasedTicketCreator
+        
+        # Test query
+        test_query = "I cannot access the admin panel, it shows a 500 error when I try to login"
+        test_email = "admin@amgen.com"
+        
+        # Create rule-based ticket creator
+        auto_ticket_creator = RuleBasedTicketCreator()
+        
+        print(f"🧪 Testing rule-based ticket creation with query: {test_query}")
+        
+        # Create ticket with rule-based analysis
+        result = auto_ticket_creator.create_automatic_ticket_rule_based(
+            query=test_query,
+            customer_email=test_email,
+            force_create=True
+        )
+        
+        return {
+            "status": "test_complete",
+            "result": result,
+            "test_query": test_query,
+            "test_email": test_email
+        }
+        
+    except Exception as e:
+        print(f"❌ Error in test: {e}")
+        return {
+            "status": "error",
+            "message": f"Test failed: {str(e)}"
         }
 
 @app.get("/api/chat/transcript/{user_id}")

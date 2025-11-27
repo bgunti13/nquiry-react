@@ -1,7 +1,76 @@
 import api from './api'
 
 export const chatService = {
-  // Send a message to the chat API
+  // Send a message to the chat API with streaming
+  sendMessageStream: async (message, userId = 'demo_user', organizationData = null, sessionId = null, images = null, onStatusUpdate = null, onFinalResponse = null) => {
+    try {
+      const requestData = {
+        message,
+        user_id: userId,
+        organization_data: organizationData,
+        timestamp: new Date().toISOString()
+      }
+      
+      // Add session_id if provided
+      if (sessionId) {
+        requestData.session_id = sessionId
+      }
+      
+      // Add images if provided
+      if (images && images.length > 0) {
+        requestData.images = images.map(img => ({
+          base64: img.base64,
+          type: img.type,
+          name: img.name,
+          size: img.size
+        }))
+      }
+      
+      const response = await fetch('http://localhost:8000/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData)
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        
+        const chunk = decoder.decode(value)
+        const lines = chunk.split('\n')
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              
+              if (data.type === 'status' && onStatusUpdate) {
+                onStatusUpdate(data)
+              } else if (data.type === 'response' && onFinalResponse) {
+                onFinalResponse(data)
+              }
+            } catch (e) {
+              console.error('Error parsing SSE data:', e)
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error in streaming message:', error)
+      throw error
+    }
+  },
+
+  // Send a message to the chat API (original non-streaming version)
   sendMessage: async (message, userId = 'demo_user', organizationData = null, sessionId = null, images = null) => {
     try {
       const requestData = {
