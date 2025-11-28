@@ -3,18 +3,22 @@ FastAPI server for nQuiry - Uses existing intelligent system
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone, timedelta
 import asyncio
 import json
 import os
+import time
+import random
 
 # Import your existing intelligent system
 from main import IntelligentQueryProcessor
 from chat_history_manager import ChatHistoryManager
 from continuous_learning_manager import get_learning_manager
+from organization_access_controller import check_organization_access
+from image_analyzer import ImageAnalyzer
 
 app = FastAPI(title="nQuiry API", version="1.0.0")
 
@@ -28,6 +32,137 @@ def get_ist_time():
     # Return as naive datetime (without timezone info) so frontend treats it correctly
     return ist_time
 
+def generate_jira_ticket_id(category: str) -> str:
+    """Generate a Jira-style ticket ID"""
+    random_number = random.randint(10000, 99999)
+    return f"{category}-{random_number}"
+
+def generate_ticket_summary(description: str) -> str:
+    """Generate a concise summary from the description"""
+    # Clean up the description
+    desc = description.strip()
+    
+    # If it's a question, keep it as is but truncate if too long
+    if desc.endswith('?'):
+        return desc[:80] + "..." if len(desc) > 80 else desc
+    
+    # For statements, create a support request format
+    if len(desc) > 60:
+        return f"Support Request: {desc[:60]}..."
+    else:
+        return f"Support Request: {desc}"
+
+def enhance_description_with_context(query: str, chat_history=None) -> str:
+    """Enhance description with AI analysis and conversation context using AWS Bedrock"""
+    try:
+        # Import AWS Bedrock client
+        import boto3
+        import json
+        
+        # Initialize Bedrock client
+        bedrock_runtime = boto3.client(
+            service_name='bedrock-runtime',
+            region_name='us-east-1'  # You can change this to your preferred region
+        )
+        
+        # Prepare conversation context
+        conversation_context = ""
+        if chat_history:
+            # Get recent relevant messages from user
+            user_messages = []
+            assistant_messages = []
+            for msg in chat_history[-10:]:  # Last 10 messages for context
+                if msg.get('role') == 'user' and len(msg.get('message', '')) > 5:
+                    user_messages.append(msg.get('message', ''))
+                elif msg.get('role') == 'assistant' and len(msg.get('message', '')) > 10:
+                    assistant_messages.append(msg.get('message', ''))
+            
+            if user_messages:
+                conversation_context = f"\n\nConversation History:\n"
+                for i, msg in enumerate(user_messages[-5:], 1):  # Last 5 user messages
+                    conversation_context += f"User Message {i}: {msg}\n"
+        
+        # Create prompt for Bedrock
+        prompt = f"""You are a technical support analyst. Analyze the following user query and conversation history to create a comprehensive ticket description.
+
+Current User Query: {query}
+{conversation_context}
+
+Please provide a detailed technical description that:
+1. Clearly explains what the user is trying to accomplish
+2. Identifies the specific technical area/feature involved
+3. Analyzes any context from the conversation
+4. Suggests the likely root cause or area of investigation
+5. Keeps it professional and technical
+
+Provide only the enhanced description without any prefixes or labels. Make it 2-4 sentences that a support engineer would find helpful."""
+
+        # Call Bedrock Claude model
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 300,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        }
+        
+        response = bedrock_runtime.invoke_model(
+            modelId="anthropic.claude-3-sonnet-20240229-v1:0",  # Using Claude 3 Sonnet
+            body=json.dumps(body)
+        )
+        
+        # Parse response
+        response_body = json.loads(response['body'].read())
+        enhanced_description = response_body['content'][0]['text'].strip()
+        
+        print(f"🤖 Generated enhanced description via Bedrock: {enhanced_description[:100]}...")
+        
+        return enhanced_description
+        
+    except Exception as e:
+        print(f"⚠️ Could not enhance description with Bedrock: {e}")
+        
+        # Fallback to manual analysis if Bedrock fails
+        base_description = query
+        
+        # Add conversation context manually if available
+        if chat_history:
+            user_messages = []
+            for msg in chat_history[-5:]:
+                if msg.get('role') == 'user' and len(msg.get('message', '')) > 10:
+                    user_messages.append(msg.get('message', ''))
+            
+            if len(user_messages) > 1:
+                # Create a more detailed fallback description
+                base_description = f"""User Issue: {query}
+
+Context: This request is part of an ongoing conversation where the user has been discussing related topics. The user appears to need assistance with system functionality.
+
+Technical Area: Based on the query, this relates to payment processing, specifically rebate management and payment scheduling functionality."""
+        else:
+            # Enhanced single-query analysis
+            if 'rebate' in query.lower():
+                base_description = f"""Payment Processing Issue: {query}
+
+This appears to be related to rebate management functionality, specifically concerning the timing and scheduling of future rebate payments. The user needs guidance on system configuration or process workflows for delayed payment creation."""
+            elif 'login' in query.lower() or 'access' in query.lower():
+                base_description = f"""Access Issue: {query}
+
+This is an authentication/authorization related request. The user is experiencing difficulties accessing the system or specific features."""
+            elif 'error' in query.lower() or 'issue' in query.lower():
+                base_description = f"""System Error: {query}
+
+The user is encountering a technical issue that requires investigation. This may involve system functionality, data processing, or application behavior."""
+            else:
+                base_description = f"""User Request: {query}
+
+The user requires technical assistance with system functionality. This request needs analysis to determine the specific area of the application and appropriate resolution steps."""
+        
+        return base_description
+
 # Enable CORS for React frontend
 app.add_middleware(
     CORSMiddleware,
@@ -38,17 +173,25 @@ app.add_middleware(
 )
 
 # Pydantic models
+class ImageData(BaseModel):
+    base64: str
+    type: str
+    name: str
+    size: int
+
 class ChatMessage(BaseModel):
     message: str
     user_id: str
     organization_data: Optional[Dict[str, Any]] = None
     session_id: Optional[str] = None
+    images: Optional[List[ImageData]] = None
 
 class StreamingChatMessage(BaseModel):
     message: str
     user_id: str
     organization_data: Optional[Dict[str, Any]] = None
     session_id: Optional[str] = None
+    images: Optional[List[ImageData]] = None
 
 class ChatResponse(BaseModel):
     response: str
@@ -75,6 +218,7 @@ except Exception as e:
 # Global dictionaries for storing user processors and chat histories
 processors = {}  # Store processor instances per user
 chat_histories = {}  # Fallback in-memory chat storage
+pending_tickets = {}  # Store partial ticket data for follow-up questions
 
 
 def is_greeting_message(message: str) -> tuple:
@@ -249,13 +393,118 @@ def extract_issue_from_ticket_request(query):
 def create_intelligent_ticket_simple(query: str, customer_email: str) -> Dict:
     """
     Simple intelligent ticket creation - extract info from query and create ticket automatically
+    Supports both JIRA (simulated) and Zendesk (real) ticket creation based on domain
     """
     try:
         from ticket_creator import TicketCreator
+        from customer_role_manager import CustomerRoleMappingManager
         
         ticket_creator = TicketCreator()
         
         print(f"🤖 Simple intelligent analysis for query: '{query}'")
+        
+        # Check if this is a support domain
+        customer_role_manager = CustomerRoleMappingManager()
+        is_support_domain = customer_role_manager.is_support_domain(customer_email)
+        
+        print(f"📧 Domain type: {'Support (Zendesk)' if is_support_domain else 'Regular (JIRA)'}")
+        
+        if is_support_domain:
+            # Create real Zendesk ticket for support domains
+            return create_zendesk_ticket_intelligent(query, customer_email)
+        else:
+            # Create simulated JIRA ticket for regular domains
+            return create_jira_ticket_simulated(query, customer_email)
+            
+    except Exception as e:
+        print(f"❌ Error in simple intelligent ticket creation: {e}")
+        return {
+            'status': 'error',
+            'message': f'Error creating ticket: {str(e)}'
+        }
+
+def create_zendesk_ticket_intelligent(query: str, customer_email: str) -> Dict:
+    """Create a real Zendesk ticket for support domains"""
+    try:
+        from tools.zendesk_tool import ZendeskTool
+        from datetime import datetime
+        
+        print(f"🎫 Creating Zendesk ticket for: {query}")
+        
+        zendesk_tool = ZendeskTool()
+        
+        # Prepare ticket data
+        ticket_data = {
+            "subject": f"Support Request: {query[:100]}",
+            "description": f"""**Automated Support Request**
+
+**Issue Description:**
+{query}
+
+**Requester:** {customer_email}
+**Created:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
+**Source:** nQuiry AI Assistant
+
+**Request Details:**
+The user has submitted this support request through the nQuiry AI assistant. Please review and provide appropriate assistance.
+""",
+            "requester_email": customer_email,
+            "priority": "normal",
+            "type": "question",
+            "tags": ["nquiry", "ai-assistant", "automated"]
+        }
+        
+        # Create ticket in Zendesk
+        result = zendesk_tool.create_ticket(ticket_data)
+        
+        if result.get('success'):
+            ticket_info = result['ticket']
+            ticket_id = ticket_info.get('id')
+            ticket_url = ticket_info.get('url', '')
+            
+            return {
+                'status': 'created',
+                'ticket_id': ticket_id,
+                'ticket_url': ticket_url,
+                'platform': 'Zendesk',
+                'message': f"""✅ **Zendesk Support Ticket Created Successfully!**
+
+🎫 **Ticket ID:** {ticket_id}
+📧 **Requester:** {customer_email}
+🔗 **Ticket URL:** {ticket_url}
+
+**Subject:** {ticket_data['subject']}
+
+Our support team will review your request and respond soon. You can track progress using the ticket ID or URL above.""",
+                'ticket_data': {
+                    'id': ticket_id,
+                    'url': ticket_url,
+                    'subject': ticket_data['subject'],
+                    'status': 'open',
+                    'created': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'requester': customer_email
+                }
+            }
+        else:
+            error_msg = result.get('error', 'Unknown error')
+            return {
+                'status': 'error',
+                'message': f'❌ Failed to create Zendesk ticket: {error_msg}'
+            }
+            
+    except Exception as e:
+        print(f"❌ Error creating Zendesk ticket: {e}")
+        return {
+            'status': 'error',
+            'message': f'❌ Error creating Zendesk ticket: {str(e)}'
+        }
+
+def create_jira_ticket_simulated(query: str, customer_email: str) -> Dict:
+    """Create a simulated JIRA ticket for regular domains (existing functionality)"""
+    try:
+        from ticket_creator import TicketCreator
+        
+        ticket_creator = TicketCreator()
         
         # Extract customer info
         customer_domain = customer_email.split('@')[-1] if customer_email else 'unknown.com'
@@ -292,18 +541,47 @@ def create_intelligent_ticket_simple(query: str, customer_email: str) -> Dict:
         elif any(word in query_lower for word in ['application', 'app', 'system']):
             area = 'Application'
         
-        # Simple environment detection
-        environment = 'production'  # Default
-        if any(word in query_lower for word in ['test', 'testing', 'staging']):
-            environment = 'staging'
-        elif any(word in query_lower for word in ['dev', 'development']):
-            environment = 'development'
+        # Use proper environment detection - only auto-fill if explicitly mentioned
+        from environment_detection import detect_environment_from_query
+        detected_env, confidence = detect_environment_from_query(query)
+        environment = detected_env if detected_env else None
         
-        print(f"🎯 Analysis results: Category={category}, Priority={priority}, Area={area}, Environment={environment}")
+        print(f"🎯 Environment detection: {environment} (confidence: {confidence})")
+        
+        # Check if environment is required but missing
+        category_info = ticket_creator.ticket_config.get("ticket_categories", {}).get(category, {})
+        required_fields = category_info.get("required_fields", {})
+        
+        if 'reported_environment' in required_fields and environment is None:
+            print("⚠️ Environment not specified in query - need to ask user")
+            return {
+                'needs_more_info': True,
+                'missing_field': 'environment',
+                'question': "Which environment is affected by this issue? (production or staging)",
+                'analysis': {
+                    'category': category,
+                    'priority': priority,
+                    'area': area,
+                    'customer': customer,
+                    'customer_email': customer_email
+                }
+            }
+        
+        # If we get here, environment is either specified or not required
+        environment_display = environment if environment else 'Not specified'
+        
+        print(f"🎯 Analysis results: Category={category}, Priority={priority}, Area={area}, Environment={environment_display}")
         
         # Create ticket data
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         ticket_id = f"TICKET_{category}_{customer}_{timestamp}"
+        jira_ticket_id = generate_jira_ticket_id(category)
+        
+        # Enhance description with conversation context
+        enhanced_description = enhance_description_with_context(query)
+        
+        # Generate summary from description
+        ticket_summary = generate_ticket_summary(query)
         
         # Get category-specific required and populated fields
         ticket_config = ticket_creator.ticket_config
@@ -316,14 +594,15 @@ def create_intelligent_ticket_simple(query: str, customer_email: str) -> Dict:
         
         ticket_data = {
             'ticket_id': ticket_id,
+            'jira_ticket_id': jira_ticket_id,
             'category': category,
             'customer': customer,
             'customer_email': customer_email,
             'original_query': query,
             'created_date': datetime.now().isoformat(),
-            'creation_method': 'intelligent_simple',
             'priority': priority,
-            'description': query
+            'description': enhanced_description,
+            'summary': ticket_summary
         }
         
         # Handle category-specific required fields intelligently
@@ -331,37 +610,54 @@ def create_intelligent_ticket_simple(query: str, customer_email: str) -> Dict:
             ticket_data['area'] = area
             
         if 'affected_version' in required_fields:
-            # Try to extract version from query
-            import re
-            version_patterns = [
-                r'version\s+(\d+\.[\d.]+)',
-                r'v(\d+\.[\d.]+)',
-                r'(\d+\.[\d.]+)',
-                r'build\s+(\d+)',
-                r'release\s+(\d+\.[\d.]+)'
-            ]
+            # Auto-populate affected_version with customer's product version from Excel
             affected_version = 'Not specified'
-            for pattern in version_patterns:
-                match = re.search(pattern, query_lower)
-                if match:
-                    affected_version = match.group(1)
-                    break
+            if customer_email:
+                try:
+                    from customer_role_manager import CustomerRoleMappingManager
+                    customer_manager = CustomerRoleMappingManager()
+                    domain = customer_email.split('@')[-1].lower()
+                    customer_mapping = customer_manager.get_customer_mapping(domain)
+                    excel_version = customer_mapping.get('prod_version', '')
+                    if excel_version and excel_version != 'nan':
+                        affected_version = excel_version
+                        print(f"🎯 Auto-populated affected version from Excel: {affected_version}")
+                except Exception as e:
+                    print(f"⚠️ Could not get version from Excel: {e}")
+                    # Fallback to query extraction
+                    import re
+                    version_patterns = [
+                        r'version\s+(\d+\.[\d.]+)',
+                        r'v(\d+\.[\d.]+)',
+                        r'(\d+\.[\d.]+)',
+                        r'build\s+(\d+)',
+                        r'release\s+(\d+\.[\d.]+)'
+                    ]
+                    for pattern in version_patterns:
+                        match = re.search(pattern, query_lower)
+                        if match:
+                            affected_version = match.group(1)
+                            break
             ticket_data['affected_version'] = affected_version
             
         if 'reported_environment' in required_fields:
-            ticket_data['reported_environment'] = environment
+            ticket_data['reported_environment'] = environment_display
             
         if 'environment' in required_fields:
-            ticket_data['environment'] = environment
+            ticket_data['environment'] = environment_display
         
         # Add auto-populated fields based on category
         for field, value in populated_fields.items():
-            if field not in ticket_data and isinstance(value, str):
-                if 'based on description' in value.lower():
-                    ticket_data[field] = f"Support Request: {query[:80]}{'...' if len(query) > 80 else ''}"
+            should_process = (field not in ticket_data or 
+                            (isinstance(value, str) and ('based on' in value.lower() or 'generated' in value.lower())))
+            
+            if should_process and isinstance(value, str):
+                if 'based on description' in value.lower() or 'generated based on description' in value.lower():
+                    # Use our generated summary instead of placeholder
+                    ticket_data[field] = ticket_summary
                 elif 'based on customer organization' in value.lower():
-                    customer_mapping = ticket_creator.customer_role_manager.get_customer_mapping(customer_domain)
-                    ticket_data[field] = customer_mapping.get('organization', customer)
+                    # Use our determined customer instead of placeholder  
+                    ticket_data[field] = customer
                 elif 'current_date' in value.lower():
                     ticket_data[field] = datetime.now().strftime('%Y-%m-%d')
                 else:
@@ -387,6 +683,7 @@ Created using intelligent analysis of user query
 Analysis Method: Simple keyword-based detection
 
 Ticket ID: {ticket_id}
+Jira Ticket ID: {jira_ticket_id}
 Category: {category}
 Customer: {customer}
 Customer Email: {customer_email}
@@ -401,8 +698,8 @@ TICKET DETAILS:
 """
         
         # Add all ticket fields to content in a structured way
-        # Priority fields first
-        priority_fields = ['description', 'priority', 'area', 'affected_version', 'reported_environment', 'environment']
+        # Priority fields first (excluding creation_method)
+        priority_fields = ['description', 'summary', 'priority', 'area', 'affected_version', 'reported_environment', 'environment']
         for field in priority_fields:
             if field in ticket_data:
                 field_label = field.replace('_', ' ').title()
@@ -413,7 +710,7 @@ TICKET DETAILS:
         ticket_content += "=" * 50 + "\n"
         
         for field, value in ticket_data.items():
-            if field not in priority_fields and field not in ['ticket_id', 'category', 'customer', 'customer_email', 'original_query', 'created_date', 'creation_method']:
+            if field not in priority_fields and field not in ['ticket_id', 'jira_ticket_id', 'category', 'customer', 'customer_email', 'original_query', 'created_date']:
                 field_label = field.replace('_', ' ').title()
                 ticket_content += f"{field_label}: {value}\n"
         
@@ -457,8 +754,9 @@ def create_processor_for_user(customer_email: str):
     MindTouchTool.get_customer_email_from_input = lambda: customer_email
     
     try:
-        # Create processor in streamlit mode (which should skip prompts)
-        processor = IntelligentQueryProcessor(customer_email=customer_email, streamlit_mode=True)
+        # Create processor in NON-streamlit mode so it actually creates tickets
+        # instead of showing forms for support domains
+        processor = IntelligentQueryProcessor(customer_email=customer_email, streamlit_mode=False)
         return processor
     finally:
         # Restore original method
@@ -584,6 +882,10 @@ async def send_message_stream(message: StreamingChatMessage):
                 # Create a custom processor that doesn't prompt for email
                 processor = create_processor_for_user(user_data['customer_email'])
                 user_data['processor'] = processor
+                
+                # Debug: Check domain routing
+                print(f"🔍 DEBUG - User Email: {user_id}")
+                print(f"🔍 DEBUG - Processor is_support_domain: {processor.is_support_domain if hasattr(processor, 'is_support_domain') else 'NOT SET'}")
             
             processor = user_data['processor']
             
@@ -650,6 +952,74 @@ async def send_message_stream(message: StreamingChatMessage):
                 yield await send_final_response(satisfaction_response, show_ticket_form=False)
                 return
             
+            # Handle image analysis if images are provided
+            image_context = ""
+            if message.images and len(message.images) > 0:
+                yield await send_status_update("🖼️ Analyzing uploaded images...", "analyzing-image", "🖼️")
+                print(f"📸 Processing {len(message.images)} uploaded images...")
+                
+                try:
+                    image_analyzer = ImageAnalyzer()
+                    
+                    # Prepare images in the format expected by analyze_images_with_query
+                    images_for_analysis = []
+                    for i, image_data in enumerate(message.images):
+                        print(f"🖼️ Analyzing image {i+1}: {image_data.name} ({image_data.type})")
+                        images_for_analysis.append({
+                            'base64': image_data.base64,
+                            'type': image_data.type,
+                            'name': image_data.name
+                        })
+                    
+                    # Analyze all images with user query
+                    analysis_result = image_analyzer.analyze_images_with_query(
+                        images=images_for_analysis,
+                        user_query=message.message if message.message.strip() else "Please analyze these images and describe what you see, focusing on any technical issues, error messages, or interface elements."
+                    )
+                    
+                    if analysis_result.get('success'):
+                        image_context += f"\n\nImage Analysis:\n{analysis_result.get('analysis', 'No analysis available')}"
+                        
+                        # Also include extracted text if available
+                        extracted_text = analysis_result.get('extracted_text', '')
+                        if extracted_text:
+                            image_context += f"\n\nExtracted Text:\n{extracted_text}"
+                        
+                        print(f"✅ Images analyzed successfully")
+                    else:
+                        error_msg = analysis_result.get('error', 'Unknown error')
+                        print(f"❌ Image analysis failed: {error_msg}")
+                        image_context = f"\n\nImage Analysis Error: {error_msg}\n"
+                        
+                except Exception as e:
+                    print(f"❌ Image analysis error: {e}")
+                    image_context = f"\n\nImage Analysis Error: {str(e)}\n"
+            
+            # Check organization access control before processing query
+            yield await send_status_update("🔒 Checking access permissions...", "security", "🔒")
+            print(f"🔒 Checking organization access for query: '{message.message}' from {user_id}")
+            access_check = check_organization_access(message.message, user_id)
+            if not access_check['allowed']:
+                print(f"🚫 Access denied: {access_check['message']}")
+                user_info = access_check.get('user_info', {})
+                if user_info:
+                    print(f"   User org: {user_info.get('organization', 'Unknown')}")
+                print(f"   Blocked orgs: {access_check['blocked_orgs']}")
+                
+                # Store bot response in history
+                bot_response = access_check['message']
+                if chat_history_manager:
+                    chat_history_manager.add_message(user_id, "assistant", bot_response, message.session_id)
+                else:
+                    chat_histories[user_id].append({
+                        "role": "assistant", 
+                        "message": bot_response,
+                        "timestamp": get_ist_time()
+                    })
+                
+                yield await send_final_response(bot_response, show_ticket_form=False)
+                return
+            
             show_ticket = False  # Initialize ticket flag
             
             # Convert MongoDB history format to the format expected by IntelligentQueryProcessor
@@ -687,8 +1057,8 @@ async def send_message_stream(message: StreamingChatMessage):
                         print(f"🔍 Found last bot message: '{last_bot_message[:100]}...'")
                         break
                 
-                # Check if the last bot message asked about creating a ticket
-                if last_bot_message and any(phrase in last_bot_message.lower() for phrase in [
+                # Check if the last bot message asked about creating a ticket OR asked about environment
+                if last_bot_message and (any(phrase in last_bot_message.lower() for phrase in [
                     'would you like me to create a support ticket',
                     'would you like to create a ticket',
                     'create a support ticket',
@@ -699,8 +1069,204 @@ async def send_message_stream(message: StreamingChatMessage):
                     'need more help?',
                     'create a support ticket so',
                     'would you like me to create a support ticket so'
-                ]):
+                ]) or any(phrase in last_bot_message.lower() for phrase in [
+                    'which environment is affected',
+                    'production or staging',
+                    'environment question',
+                    'specify either \'production\' or \'staging\''
+                ])):
                     print(f"🔍 Last bot message contained ticket creation suggestion: '{last_bot_message[:100]}...'")
+                    
+                    # Check if user is responding to environment question
+                    print(f"🔍 Checking pending tickets for user {user_id}...")
+                    print(f"🔍 Pending tickets keys: {list(pending_tickets.keys())}")
+                    if user_id in pending_tickets:
+                        print(f"🔍 Found pending ticket data: {pending_tickets[user_id]}")
+                    
+                    if user_id in pending_tickets and pending_tickets[user_id].get('missing_field') == 'environment':
+                        print(f"🌍 User responding to environment question: '{message.message}'")
+                        
+                        from environment_detection import validate_environment_response
+                        validated_env = validate_environment_response(message.message)
+                        
+                        if validated_env:
+                            print(f"✅ Valid environment response: {validated_env}")
+                            
+                            # Get stored analysis and create ticket with environment
+                            stored_data = pending_tickets[user_id]
+                            analysis = stored_data['analysis']
+                            original_query = stored_data['original_query']
+                            
+                            # Create ticket with the provided environment
+                            yield await send_status_update("🎫 Creating your support ticket...", "creating-ticket", "🎫")
+                            
+                            # Use the simple ticket creation with the environment override
+                            def create_ticket_with_env():
+                                # Create ticket data manually with the provided environment
+                                from ticket_creator import TicketCreator
+                                ticket_creator = TicketCreator()
+                                
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                ticket_id = f"TICKET_{analysis['category']}_{analysis['customer']}_{timestamp}"
+                                jira_ticket_id = generate_jira_ticket_id(analysis['category'])
+                                
+                                # Get conversation history for enhanced description
+                                chat_history = []
+                                if chat_history_manager:
+                                    try:
+                                        chat_history = chat_history_manager.get_chat_history(analysis['customer_email'])
+                                    except:
+                                        chat_history = chat_histories.get(analysis['customer_email'], [])
+                                else:
+                                    chat_history = chat_histories.get(analysis['customer_email'], [])
+                                
+                                # Enhance description with conversation context
+                                enhanced_description = enhance_description_with_context(original_query, chat_history)
+                                ticket_summary = generate_ticket_summary(original_query)
+                                
+                                # Get category configuration for fields
+                                category_info = ticket_creator.ticket_config.get("ticket_categories", {}).get(analysis['category'], {})
+                                required_fields = category_info.get("required_fields", {})
+                                populated_fields = category_info.get("populated_fields", {})
+                                
+                                # Build ticket data with environment
+                                ticket_data = {
+                                    'ticket_id': ticket_id,
+                                    'jira_ticket_id': jira_ticket_id,
+                                    'category': analysis['category'],
+                                    'customer': analysis['customer'],
+                                    'customer_email': analysis['customer_email'],
+                                    'priority': analysis['priority'],
+                                    'description': enhanced_description,
+                                    'summary': ticket_summary,
+                                    'original_query': original_query,
+                                    'created_date': datetime.now().isoformat()
+                                }
+                                
+                                # Add all populated fields with placeholder processing
+                                for field_name, field_value in populated_fields.items():
+                                    should_process = (field_name not in ticket_data or 
+                                                    (isinstance(field_value, str) and ('based on' in field_value.lower() or 'generated' in field_value.lower())))
+                                    
+                                    if should_process and isinstance(field_value, str):
+                                        if 'based on description' in field_value.lower() or 'generated based on description' in field_value.lower():
+                                            # Use our generated summary instead of placeholder
+                                            ticket_data[field_name] = ticket_summary
+                                        elif 'based on customer organization' in field_value.lower():
+                                            # Use our determined customer instead of placeholder  
+                                            ticket_data[field_name] = analysis['customer']
+                                        elif 'current_date' in field_value.lower():
+                                            ticket_data[field_name] = datetime.now().strftime('%Y-%m-%d')
+                                        else:
+                                            ticket_data[field_name] = field_value
+                                    elif field_name not in ticket_data:
+                                        # Handle non-string values directly
+                                        ticket_data[field_name] = field_value
+                                
+                                # Add required fields with environment override
+                                if 'reported_environment' in required_fields:
+                                    ticket_data['reported_environment'] = validated_env
+                                if 'environment' in required_fields:
+                                    ticket_data['environment'] = validated_env
+                                
+                                # Auto-populate affected_version from Excel if available
+                                if 'affected_version' in required_fields and analysis.get('customer_email'):
+                                    try:
+                                        from customer_role_manager import CustomerRoleMappingManager
+                                        customer_manager = CustomerRoleMappingManager()
+                                        domain = analysis['customer_email'].split('@')[-1].lower()
+                                        customer_mapping = customer_manager.get_customer_mapping(domain)
+                                        excel_version = customer_mapping.get('prod_version', '')
+                                        if excel_version and excel_version != 'nan':
+                                            ticket_data['affected_version'] = excel_version
+                                        else:
+                                            ticket_data['affected_version'] = 'Not specified'
+                                    except Exception as e:
+                                        print(f"⚠️ Could not get version from Excel: {e}")
+                                        ticket_data['affected_version'] = 'Not specified'
+                                
+                                return ticket_data
+                            
+                            try:
+                                ticket_data = create_ticket_with_env()
+                                
+                                if ticket_data:
+                                    # Clean up pending ticket
+                                    del pending_tickets[user_id]
+                                    
+                                    # Generate the same message format as create_intelligent_ticket_simple
+                                    auto_response = f"""🎫 **Support Ticket Created Successfully!**
+
+**Ticket ID:** {ticket_data['ticket_id']}
+
+We have raised a ticket for human support and our support team will review your request. You can download the complete ticket details using the download option below.
+
+Our support agent will assist you shortly. Is there anything else I can help you with today?"""
+                                    
+                                    # Also save the ticket to file like the original function does
+                                    try:
+                                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                        filepath = f"ticket_simulation_output/ticket_demo_{analysis['category']}_{analysis['customer']}_{timestamp}.txt"
+                                        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                                        
+                                        # Generate ticket content for file
+                                        ticket_content = f"""AUTOMATIC AI TICKET
+===================
+
+Ticket ID: {ticket_data['ticket_id']}
+Jira Ticket ID: {ticket_data['jira_ticket_id']}
+Category: {ticket_data['category']}
+Customer: {ticket_data['customer']}
+Priority: {ticket_data.get('priority', 'Medium')}
+Description: {ticket_data['description']}
+
+AUTO-POPULATED FIELDS FROM {ticket_data['category']} CATEGORY:
+"""
+                                        
+                                        for field, value in ticket_data.items():
+                                            if field not in ['ticket_id', 'jira_ticket_id', 'category', 'customer', 'customer_email', 'original_query', 'created_date', 'description']:
+                                                field_label = field.replace('_', ' ').title()
+                                                ticket_content += f"• {field_label}: {value}\n"
+                                        
+                                        ticket_content += f"\nThis ticket was created automatically using AI analysis."
+                                        
+                                        with open(filepath, 'w', encoding='utf-8') as f:
+                                            f.write(ticket_content)
+                                        
+                                        print(f"💾 Ticket saved to: {filepath}")
+                                    except Exception as save_error:
+                                        print(f"⚠️ Could not save ticket file: {save_error}")
+                                    
+                                    if chat_history_manager:
+                                        chat_history_manager.add_message(user_id, "assistant", auto_response, message.session_id)
+                                    else:
+                                        chat_histories[user_id].append({
+                                            "role": "assistant", 
+                                            "message": auto_response,
+                                            "timestamp": get_ist_time()
+                                        })
+                                    
+                                    yield await send_final_response(
+                                        auto_response,
+                                        show_ticket_form=False,
+                                        auto_ticket_created=True,
+                                        ticket_data=ticket_data
+                                    )
+                                    return
+                            except Exception as e:
+                                print(f"❌ Error creating ticket with environment: {e}")
+                                del pending_tickets[user_id]  # Clean up
+                                yield await send_final_response(
+                                    "I encountered an error creating your ticket. Please try again or use the ticket form.",
+                                    show_ticket_form=True
+                                )
+                                return
+                        else:
+                            print(f"❌ Invalid environment response: '{message.message}'")
+                            yield await send_final_response(
+                                "Please specify either 'production' or 'staging' for the environment."
+                            )
+                            return
                     
                     # Check if current user message is affirmative
                     user_message_lower = message.message.lower().strip()
@@ -731,7 +1297,32 @@ async def send_message_stream(message: StreamingChatMessage):
                         print(f"🤖 Creating intelligent ticket for confirmed request: '{original_query}'")
                         ticket_result = create_intelligent_ticket_simple(original_query, user_id)
                         
-                        if ticket_result.get('status') == 'created':
+                        if ticket_result.get('needs_more_info'):
+                            # Need to ask follow-up question for missing field
+                            print(f"❓ Need more info: {ticket_result.get('missing_field')}")
+                            follow_up_question = ticket_result.get('question', 'Please provide more details.')
+                            
+                            # Store the analysis for when user responds
+                            pending_tickets[user_id] = {
+                                'analysis': ticket_result.get('analysis'),
+                                'original_query': original_query,
+                                'missing_field': ticket_result.get('missing_field'),
+                                'timestamp': time.time()
+                            }
+                            
+                            if chat_history_manager:
+                                chat_history_manager.add_message(user_id, "assistant", follow_up_question, message.session_id)
+                            else:
+                                chat_histories[user_id].append({
+                                    "role": "assistant", 
+                                    "message": follow_up_question,
+                                    "timestamp": get_ist_time()
+                                })
+                            
+                            yield await send_final_response(follow_up_question)
+                            return
+                            
+                        elif ticket_result.get('status') == 'created':
                             print("✅ Intelligent ticket created successfully after user confirmation!")
                             
                             auto_response = ticket_result.get('message', '')
@@ -872,22 +1463,81 @@ Is there anything else I can help you with today?"""
                         )
                         return
             else:
-                # If not a direct ticket request, process through intelligent search flow first
-                print(f"📚 Query '{message.message}' -> Using search flow first: JIRA → MindTouch → Comprehensive Response")
+                # Determine workflow type based on domain
+                is_support_domain = processor.is_support_domain if hasattr(processor, 'is_support_domain') else False
                 
-                # Send search status updates
-                yield await send_status_update("🎫 Looking through JIRA tickets...", "searching-jira", "🎫")
-                await asyncio.sleep(1.5)  # Simulate search time
+                print(f"🔍 DEBUG - Routing Decision: user_id={user_id}, is_support_domain={is_support_domain}")
                 
-                yield await send_status_update("📚 Searching MindTouch articles...", "searching-mindtouch", "📚")
-                await asyncio.sleep(1.5)  # Simulate search time
+                if is_support_domain:
+                    print(f"📚 Query '{message.message}' -> Using support flow: Zendesk → Azure Blob → Comprehensive Response")
+                    
+                    # Send support workflow status updates
+                    yield await send_status_update("🎫 Looking through Zendesk tickets...", "searching-zendesk", "🎫")
+                    await asyncio.sleep(1.5)  # Simulate search time
+                    
+                    yield await send_status_update("🗂️ Searching SharePoint documents...", "searching-sharepoint", "🗂️")
+                    await asyncio.sleep(1.5)  # Simulate search time
+                else:
+                    print(f"📚 Query '{message.message}' -> Using search flow first: JIRA → MindTouch → Comprehensive Response")
+                    
+                    # Send regular workflow status updates
+                    yield await send_status_update("🎫 Looking through JIRA tickets...", "searching-jira", "🎫")
+                    await asyncio.sleep(1.5)  # Simulate search time
+                    
+                    yield await send_status_update("📚 Searching MindTouch articles...", "searching-mindtouch", "📚")
+                    await asyncio.sleep(1.5)  # Simulate search time
                 
                 yield await send_status_update("🧠 Generating response...", "generating", "🧠")
+                
+                # Handle image analysis if images are provided
+                image_context = ""
+                if message.images and len(message.images) > 0:
+                    yield await send_status_update("🖼️ Analyzing uploaded images...", "image-analysis", "🖼️")
+                    try:
+                        image_analyzer = ImageAnalyzer()
+                        print(f"🖼️ Analyzing {len(message.images)} image(s)...")
+                        
+                        # Prepare images in the format expected by analyze_images_with_query
+                        images_for_analysis = []
+                        for i, image_data in enumerate(message.images):
+                            print(f"📸 Processing image {i+1}: {image_data.name} ({image_data.type})")
+                            images_for_analysis.append({
+                                'base64': image_data.base64,
+                                'type': image_data.type,
+                                'name': image_data.name
+                            })
+                        
+                        # Analyze all images with user query
+                        analysis_result = image_analyzer.analyze_images_with_query(
+                            images=images_for_analysis,
+                            user_query=message.message
+                        )
+                        
+                        if analysis_result.get('success'):
+                            image_context += f"\n\nImage Analysis:\n{analysis_result.get('analysis', 'No analysis available')}"
+                            
+                            # Also include extracted text if available
+                            extracted_text = analysis_result.get('extracted_text', '')
+                            if extracted_text:
+                                image_context += f"\n\nExtracted Text:\n{extracted_text}"
+                            
+                            print(f"✅ Images analyzed successfully")
+                        else:
+                            print(f"❌ Failed to analyze images: {analysis_result.get('error', 'Unknown error')}")
+                    except Exception as e:
+                        print(f"⚠️ Error during image analysis: {e}")
+                        yield await send_status_update("⚠️ Image analysis failed, continuing with text...", "warning", "⚠️")
+                
+                # Combine text query with image context
+                enhanced_message = message.message
+                if image_context:
+                    enhanced_message = f"{message.message}\n\nAdditional Context from Images:{image_context}"
+                    print(f"🖼️ Enhanced query with image context ({len(image_context)} chars)")
                 
                 try:
                     # First, try to find helpful information through search
                     print("🔍 Searching for information: JIRA → MindTouch → Comprehensive Response")
-                    result = processor.process_query(user_id, message.message, processed_history)
+                    result = processor.process_query(user_id, enhanced_message, processed_history)
                     
                     if result and isinstance(result, dict):
                         # Handle process_query result
@@ -899,9 +1549,26 @@ Is there anything else I can help you with today?"""
                             response_text = str(result)
                         
                         # Check if this is a ticket creation flow or if ticket was created
-                        if result.get('ticket_created'):
-                            # Ticket was already created in the process - don't show form
+                        ticket_created_info = result.get('ticket_created')
+                        print(f"🔍 Checking ticket creation result: {ticket_created_info}")
+                        
+                        if ticket_created_info:
+                            # Ticket was created in the process - don't show form
+                            print(f"✅ Ticket detected: {ticket_created_info}")
                             show_ticket = False
+                            
+                            # If it's a Zendesk ticket, make sure the response shows the ticket details
+                            if isinstance(ticket_created_info, dict) and ticket_created_info.get('platform') == 'Zendesk':
+                                print("🎫 Zendesk ticket created - using ticket confirmation instead of form")
+                                
+                                # Send final response with ticket details instead of continuing to form logic
+                                yield await send_final_response(
+                                    response_text,
+                                    show_ticket_form=False,
+                                    auto_ticket_created=True,
+                                    ticket_data=ticket_created_info
+                                )
+                                return
                         else:
                             # Evaluate the quality of the response to determine if we should offer ticket creation
                             print("🤖 Evaluating search response quality...")
@@ -1118,6 +1785,32 @@ async def send_message(message: ChatMessage):
             
             return ChatResponse(
                 response=satisfaction_response,
+                show_ticket_form=False
+            )
+        
+        # Check organization access control before processing query
+        print(f"🔒 Checking organization access for query: '{message.message}' from {user_id}")
+        access_check = check_organization_access(message.message, user_id)
+        if not access_check['allowed']:
+            print(f"🚫 Access denied: {access_check['message']}")
+            user_info = access_check.get('user_info', {})
+            if user_info:
+                print(f"   User org: {user_info.get('organization', 'Unknown')}")
+            print(f"   Blocked orgs: {access_check['blocked_orgs']}")
+            
+            # Store bot response in history
+            bot_response = access_check['message']
+            if chat_history_manager:
+                chat_history_manager.add_message(user_id, "assistant", bot_response, message.session_id)
+            else:
+                chat_histories[user_id].append({
+                    "role": "assistant", 
+                    "message": bot_response,
+                    "timestamp": get_ist_time()
+                })
+            
+            return ChatResponse(
+                response=bot_response,
                 show_ticket_form=False
             )
         
@@ -1339,12 +2032,62 @@ Is there anything else I can help you with today?"""
                         is_escalation=False
                     )
         else:
-            # If not a direct ticket request, process through intelligent search flow first
-            print(f"📚 Query '{message.message}' -> Using search flow first: JIRA → MindTouch → Comprehensive Response")
+            # Determine workflow type based on domain
+            is_support_domain = processor.is_support_domain if hasattr(processor, 'is_support_domain') else False
+            
+            if is_support_domain:
+                print(f"📚 Query '{message.message}' -> Using support flow: Zendesk → Azure Blob → Comprehensive Response")
+            else:
+                print(f"📚 Query '{message.message}' -> Using search flow first: JIRA → MindTouch → Comprehensive Response")
+            
             try:
+                # Handle image analysis if images are provided
+                image_context = ""
+                if message.images and len(message.images) > 0:
+                    try:
+                        image_analyzer = ImageAnalyzer()
+                        print(f"🖼️ Analyzing {len(message.images)} image(s)...")
+                        
+                        # Prepare images in the format expected by analyze_images_with_query
+                        images_for_analysis = []
+                        for i, image_data in enumerate(message.images):
+                            print(f"📸 Processing image {i+1}: {image_data.name} ({image_data.type})")
+                            images_for_analysis.append({
+                                'base64': image_data.base64,
+                                'type': image_data.type,
+                                'name': image_data.name
+                            })
+                        
+                        # Analyze all images with user query
+                        analysis_result = image_analyzer.analyze_images_with_query(
+                            images=images_for_analysis,
+                            user_query=message.message
+                        )
+                        
+                        if analysis_result.get('success'):
+                            image_context += f"\n\nImage Analysis:\n{analysis_result.get('analysis', 'No analysis available')}"
+                            
+                            # Also include extracted text if available
+                            extracted_text = analysis_result.get('extracted_text', '')
+                            if extracted_text:
+                                image_context += f"\n\nExtracted Text:\n{extracted_text}"
+                            
+                            print(f"✅ Images analyzed successfully")
+                        else:
+                            print(f"❌ Failed to analyze images: {analysis_result.get('error', 'Unknown error')}")
+                    
+                    except Exception as e:
+                        print(f"⚠️ Error during image analysis: {e}")
+                
+                # Combine text query with image context
+                enhanced_message = message.message
+                if image_context:
+                    enhanced_message = f"{message.message}\n\nAdditional Context from Images:{image_context}"
+                    print(f"🖼️ Enhanced query with image context ({len(image_context)} chars)")
+                
                 # First, try to find helpful information through search
                 print("🔍 Searching for information: JIRA → MindTouch → Comprehensive Response")
-                result = processor.process_query(user_id, message.message, processed_history)
+                result = processor.process_query(user_id, enhanced_message, processed_history)
                 
                 if result and isinstance(result, dict):
                     # Handle process_query result
@@ -1356,9 +2099,26 @@ Is there anything else I can help you with today?"""
                         response_text = str(result)
                     
                     # Check if this is a ticket creation flow or if ticket was created
-                    if result.get('ticket_created'):
-                        # Ticket was already created in the process - don't show form
+                    ticket_created_info = result.get('ticket_created')
+                    print(f"🔍 Checking ticket creation result: {ticket_created_info}")
+                    
+                    if ticket_created_info:
+                        # Ticket was created in the process - don't show form
+                        print(f"✅ Ticket detected: {ticket_created_info}")
                         show_ticket = False
+                        
+                        # If it's a Zendesk ticket, make sure the response shows the ticket details
+                        if isinstance(ticket_created_info, dict) and ticket_created_info.get('platform') == 'Zendesk':
+                            print("🎫 Zendesk ticket created - returning ticket confirmation")
+                            
+                            # Return final response with ticket details instead of continuing to form logic
+                            return JSONResponse(content={
+                                "response": response_text,
+                                "show_ticket_form": False,
+                                "auto_ticket_created": True,
+                                "ticket_data": ticket_created_info,
+                                "chat_history": processed_history
+                            })
                     else:
                         # Evaluate the quality of the response to determine if we should offer ticket creation
                         print("🤖 Evaluating search response quality...")

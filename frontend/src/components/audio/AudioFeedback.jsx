@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { Volume2, VolumeX, Play, Square } from 'lucide-react'
+import React, { useState } from 'react'
+import { Volume2 } from 'lucide-react'
 import { useVoice } from '../../hooks/useVoice'
 
 const AudioFeedback = ({ 
@@ -9,14 +9,9 @@ const AudioFeedback = ({
   onToggleForMessage 
 }) => {
   const [isPlaying, setIsPlaying] = useState(false)
-  const [audioEnabled, setAudioEnabled] = useState(isEnabled)
   const { speak, stopSpeaking, isSpeaking } = useVoice()
 
-  useEffect(() => {
-    setAudioEnabled(isEnabled)
-  }, [isEnabled])
-
-  const handlePlayAudio = () => {
+  const handleSpeakerClick = () => {
     if (isPlaying || isSpeaking) {
       stopSpeaking()
       setIsPlaying(false)
@@ -41,61 +36,19 @@ const AudioFeedback = ({
     }
   }
 
-  const handleToggleAudio = () => {
-    const newState = !audioEnabled
-    setAudioEnabled(newState)
-    if (onToggleForMessage) {
-      onToggleForMessage(messageId, newState)
-    }
-    
-    // If disabling audio and currently playing, stop the audio
-    if (!newState && isPlaying) {
-      stopSpeaking()
-      setIsPlaying(false)
-    }
-  }
-
   return (
-    <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
-      <div className="flex items-center space-x-2">
-        {/* Audio Toggle for this message */}
-        <button
-          onClick={handleToggleAudio}
-          className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-colors ${
-            audioEnabled 
-              ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' 
-              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-          }`}
-          title={audioEnabled ? 'Disable audio for this response' : 'Enable audio for this response'}
-        >
-          {audioEnabled ? <Volume2 className="w-3 h-3" /> : <VolumeX className="w-3 h-3" />}
-          <span>{audioEnabled ? 'Audio On' : 'Audio Off'}</span>
-        </button>
-
-        {/* Play/Stop Button - only show when audio is enabled */}
-        {audioEnabled && (
-          <button
-            onClick={handlePlayAudio}
-            className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-colors ${
-              isPlaying 
-                ? 'bg-red-100 text-red-700 hover:bg-red-200' 
-                : 'bg-green-100 text-green-700 hover:bg-green-200'
-            }`}
-            title={isPlaying ? 'Stop audio' : 'Play audio'}
-          >
-            {isPlaying ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-            <span>{isPlaying ? 'Stop' : 'Play'}</span>
-          </button>
-        )}
-      </div>
-
-      {/* Audio status indicator */}
-      {audioEnabled && isPlaying && (
-        <div className="flex items-center space-x-1 text-xs text-blue-600">
-          <div className="w-1 h-1 bg-blue-500 rounded-full animate-pulse"></div>
-          <span>Playing...</span>
-        </div>
-      )}
+    <div className="flex items-center justify-end mt-2 pt-2 border-t border-gray-100">
+      <button
+        onClick={handleSpeakerClick}
+        className={`p-1.5 rounded-full transition-all duration-200 ${
+          isPlaying 
+            ? 'bg-blue-100 text-blue-600 hover:bg-blue-200 animate-pulse' 
+            : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700'
+        }`}
+        title={isPlaying ? 'Stop audio' : 'Play audio'}
+      >
+        <Volume2 className="w-4 h-4" />
+      </button>
     </div>
   )
 }

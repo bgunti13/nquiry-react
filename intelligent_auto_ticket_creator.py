@@ -322,14 +322,14 @@ Respond in JSON format:
                     analysis['affected_area'] = 'General'
             
             if not analysis.get('environment'):
-                # Default to production if not specified
-                query_lower = query.lower()
-                if 'test' in query_lower or 'staging' in query_lower:
-                    analysis['environment'] = 'staging'
-                elif 'dev' in query_lower or 'development' in query_lower:
-                    analysis['environment'] = 'development'
+                # Use proper environment detection - only auto-fill if explicitly mentioned
+                from environment_detection import detect_environment_from_query
+                detected_env, confidence = detect_environment_from_query(query)
+                if detected_env:
+                    analysis['environment'] = detected_env
                 else:
-                    analysis['environment'] = 'production'
+                    # Don't default to production - leave as None to prompt user
+                    analysis['environment'] = None
             
             analysis['completeness_score'] = 1.0  # Force complete
             

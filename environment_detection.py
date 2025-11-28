@@ -9,68 +9,34 @@ from typing import Dict, Optional, Tuple
 
 def detect_environment_from_query(query: str) -> Tuple[Optional[str], float]:
     """
-    Auto-detect environment from user query
+    Simple environment detection from user query - only detects explicit environment mentions
     
     Args:
         query: User's query text
         
     Returns:
         Tuple of (detected_environment, confidence_score)
-        - environment: 'production', 'staging', or None if not detected
-        - confidence: 0.0 to 1.0 indicating detection confidence
+        - environment: 'production', 'staging', or None if not explicitly mentioned
+        - confidence: 1.0 if found, 0.0 if not found
     """
     query_lower = query.lower()
     
-    # Production keywords with confidence scores
-    production_keywords = {
-        'production': 1.0,
-        'prod': 0.9,
-        'live': 0.8,
-        'main': 0.6,
-        'live environment': 1.0,
-        'production environment': 1.0,
-        'prod env': 0.9,
-        'production system': 0.9,
-        'live system': 0.8
-    }
-    
-    # Staging keywords with confidence scores  
-    staging_keywords = {
-        'staging': 1.0,
-        'stage': 0.9,
-        'test': 0.7,
-        'testing': 0.7,
-        'dev': 0.6,
-        'development': 0.8,
-        'staging environment': 1.0,
-        'test environment': 0.8,
-        'development environment': 0.8,
-        'staging env': 0.9,
-        'test env': 0.7,
-        'dev env': 0.6
-    }
-    
-    max_prod_score = 0.0
-    max_staging_score = 0.0
+    # Simple keyword detection - only explicit mentions
+    production_keywords = ['production', 'prod']
+    staging_keywords = ['staging', 'stage']
     
     # Check for production keywords
-    for keyword, confidence in production_keywords.items():
+    for keyword in production_keywords:
         if keyword in query_lower:
-            max_prod_score = max(max_prod_score, confidence)
+            return 'production', 1.0
     
     # Check for staging keywords  
-    for keyword, confidence in staging_keywords.items():
+    for keyword in staging_keywords:
         if keyword in query_lower:
-            max_staging_score = max(max_staging_score, confidence)
+            return 'staging', 1.0
     
-    # Determine result based on highest confidence
-    if max_prod_score >= max_staging_score and max_prod_score >= 0.6:
-        return 'production', max_prod_score
-    elif max_staging_score > max_prod_score and max_staging_score >= 0.6:
-        return 'staging', max_staging_score
-    else:
-        # No clear environment detected
-        return None, 0.0
+    # No explicit environment mentioned
+    return None, 0.0
 
 def get_environment_follow_up_question() -> str:
     """
@@ -124,7 +90,7 @@ def should_ask_environment_question(query: str, confidence_threshold: float = 0.
 
 def process_mnht_mnls_environment(query: str, user_response: str = None) -> Dict:
     """
-    Complete environment processing for MNHT/MNLS tickets
+    Simplified environment processing for MNHT/MNLS tickets
     
     Args:
         query: Original user query
@@ -155,24 +121,24 @@ def process_mnht_mnls_environment(query: str, user_response: str = None) -> Dict
             result['needs_question'] = True
             result['question'] = get_environment_follow_up_question()
             return result
+            result['needs_question'] = True
+            result['question'] = get_environment_follow_up_question()
+            return result
     
     # Try auto-detection from query
     detected_env, confidence = detect_environment_from_query(query)
     
-    if detected_env and confidence >= 0.7:
-        # High confidence auto-detection
+    if detected_env:
+        # Environment explicitly mentioned - auto-populate
         result['environment'] = detected_env
         result['auto_detected'] = True
         result['confidence'] = confidence
-        print(f"🎯 Auto-detected environment: {detected_env} (confidence: {confidence:.1%})")
+        print(f"🎯 Auto-detected environment: {detected_env} (explicit mention in query)")
     else:
-        # Low confidence or no detection - ask user
+        # No environment mentioned - ask user
         result['needs_question'] = True
         result['question'] = get_environment_follow_up_question()
-        if detected_env:
-            print(f"⚠️ Low confidence environment detection: {detected_env} ({confidence:.1%}) - asking user")
-        else:
-            print(f"❓ No environment detected in query - asking user")
+        print(f"❓ No environment mentioned in query - asking user")
     
     return result
 

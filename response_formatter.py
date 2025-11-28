@@ -9,6 +9,8 @@ from typing import List, Dict, Tuple, Optional
 from dotenv import load_dotenv
 from datetime import datetime
 from config import AWS_REGION, BEDROCK_MODEL
+from organization_access_controller import check_organization_access
+from customer_role_manager import CustomerRoleMappingManager
 
 load_dotenv()
 
@@ -44,6 +46,7 @@ class ResponseFormatter:
     def __init__(self):
         self.bedrock_client = self._create_bedrock_client()
         self.model_id = BEDROCK_MODEL
+        self.customer_role_manager = CustomerRoleMappingManager()
     
     def _create_bedrock_client(self):
         """Create AWS Bedrock client"""
@@ -59,7 +62,7 @@ class ResponseFormatter:
             print(f"Error creating Bedrock client: {e}")
             return None
     
-    def format_search_results(self, query: str, results: List[Tuple[Dict, float]], source: str, context: str = "") -> str:
+    def format_search_results(self, query: str, results: List[Tuple[Dict, float]], source: str, context: str = "", user_email: str = "") -> str:
         """
         Format search results into a user-friendly response
         
@@ -68,11 +71,18 @@ class ResponseFormatter:
             results: List of (document, similarity_score) tuples
             source: Source name (JIRA, CONFLUENCE, MINDTOUCH)
             context: Previous conversation context
+            user_email: User's email for organization access control
             
         Returns:
             Formatted response string
         """
         try:
+            # Check organization access control first
+            if user_email:
+                access_check = check_organization_access(query, user_email)
+                if not access_check['allowed']:
+                    return f"🚫 {access_check['message']}"
+            
             if not results:
                 return self._create_no_results_response(query, source)
 
@@ -374,17 +384,25 @@ Would you like to:
 3. Create a support ticket for assistance
 """
     
-    def format_multi_source_results(self, query: str, all_results: Dict[str, List[Tuple[Dict, float]]], context: str = "") -> str:
+    def format_multi_source_results(self, query: str, all_results: Dict[str, List[Tuple[Dict, float]]], context: str = "", user_email: str = "") -> str:
         """
         Format results from multiple sources
         
         Args:
             query: Original user query
             all_results: Dictionary with source names as keys and results as values
+            context: Previous conversation context
+            user_email: User's email for organization access control
             
         Returns:
             Formatted multi-source response
         """
+        # Check organization access control first
+        if user_email:
+            access_check = check_organization_access(query, user_email)
+            if not access_check['allowed']:
+                return f"🚫 {access_check['message']}"
+        
         if not all_results:
             return f"❌ No relevant information found for query: '{query}'"
         
@@ -458,10 +476,17 @@ Would you like to:
             if missing_fields:
                 return self._create_field_collection_prompt(category, missing_fields, query, user_email)
             
+            # Check if this is a support domain (should route to Zendesk)
+            is_support_domain = self.customer_role_manager.is_support_domain(user_email)
+            
             # Generate ticket data with collected fields
             ticket_data = self._generate_ticket_data_with_fields(
                 query, category, customer_domain, additional_description, config, collected_fields
             )
+            
+            # Add platform information for ticket routing
+            ticket_data['platform'] = 'Zendesk' if is_support_domain else 'JIRA'
+            ticket_data['support_domain'] = is_support_domain
             
             # Create ticket document
             ticket_document = self._create_ticket_document(ticket_data, category)
@@ -469,13 +494,17 @@ Would you like to:
             # Save ticket to file for demo
             ticket_filename = self._save_ticket_to_file(ticket_document, category, customer_domain)
             
+            platform_info = "Zendesk" if is_support_domain else "JIRA"
+            support_note = " (Support Domain - Zendesk Workflow)" if is_support_domain else " (Regular Domain - JIRA Workflow)"
+            
             return f"""✅ **Demo Ticket Created Successfully!**
 
 📁 **Ticket File:** `{ticket_filename}`
+🎫 **Platform:** {platform_info}{support_note}
 
 {ticket_document}
 
-📝 **Note:** This is a simulated ticket for demonstration purposes. In a production environment, this would be created in the actual ticketing system."""
+📝 **Note:** This is a simulated ticket for demonstration purposes. In a production environment, this would be created in the actual {platform_info} system."""
             
         except Exception as e:
             return f"❌ Error creating simulated ticket: {str(e)}"
@@ -797,15 +826,20 @@ Would you like to:
     
     def _create_ticket_document(self, ticket_data: Dict, category: str) -> str:
         """Create formatted ticket document"""
+        platform = ticket_data.get('platform', 'JIRA')
+        support_domain = ticket_data.get('support_domain', False)
+        
         doc_lines = [
             "="*60,
             f"🎫 DEMO TICKET - {category} CATEGORY",
+            f"🌐 Platform: {platform}" + (" (Support Domain)" if support_domain else " (Regular Domain)"),
             "="*60,
             "",
             f"📋 **Ticket ID:** {ticket_data['ticket_id']}",
             f"📅 **Created:** {ticket_data['created_date']}",
             f"👤 **Created By:** {ticket_data['created_by']}",
             f"🏢 **Customer:** {ticket_data['customer_domain']}",
+            f"🎯 **Target System:** {platform}",
             "",
             "📝 **TICKET DETAILS**",
             "-"*40,

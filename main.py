@@ -16,6 +16,7 @@ New Flow: JIRA (organization-specific) → MindTou            else:
 from typing import Dict, List, Any, Optional, TypedDict, Tuple
 import boto3
 import json
+from datetime import datetime
 from langgraph.graph import StateGraph, START, END
 
 from semantic_search import SemanticSearch
@@ -23,8 +24,11 @@ from response_formatter import ResponseFormatter
 from ticket_creator import TicketCreator
 from tools.mindtouch_tool import MindTouchTool
 from tools.jira_tool import JiraTool
+from tools.zendesk_tool import ZendeskTool
+from tools.azure_blob_tool import AzureBlobSharePointTool
 from chat_history_manager import ChatHistoryManager
 from continuous_learning_manager import get_learning_manager
+from customer_role_manager import CustomerRoleMappingManager
 
 # Configuration
 FALLBACK_SEARCH_ENABLED = False  # Disabled - relying on new flow
@@ -74,8 +78,59 @@ class IntelligentQueryProcessor:
             # Streamlit mode - email should be provided via other means
             customer_email = "demo@example.com"  # Fallback
 
-        # Initialize all tools
-        self.jira_tool = JiraTool()
+        # Initialize customer role manager for support domain detection
+        self.customer_role_manager = CustomerRoleMappingManager()
+        
+        # Debug: Show loaded support domains
+        support_domains = self.customer_role_manager.get_support_domains()
+        print(f"🔍 Loaded support domains: {support_domains}")
+        
+        # Temporary: Add modeln.com as support domain for testing if not present
+        if customer_email and 'modeln.com' in customer_email and 'modeln.com' not in support_domains:
+            print(f"⚠️ Adding modeln.com as support domain for testing")
+            self.customer_role_manager.support_domains.add('modeln.com')
+        
+        # Check if this is a support domain (triggers Zendesk workflow)
+        self.is_support_domain = self.customer_role_manager.is_support_domain(customer_email)
+        print(f"🎯 Domain check for {customer_email}: is_support_domain = {self.is_support_domain}")
+        
+        # CRITICAL: Prevent dual workflow execution
+        if self.is_support_domain:
+            print(f"🔒 ZENDESK WORKFLOW ONLY - JIRA tools disabled")
+        else:
+            print(f"🔒 JIRA WORKFLOW ONLY - Zendesk tools disabled")
+        
+        # Initialize tools based on domain type
+        if self.is_support_domain:
+            # Zendesk workflow: Zendesk + Azure Blob + MindTouch → Zendesk tickets
+            print("🔧 Building ZENDESK workflow (support domain)")
+            try:
+                self.zendesk_tool = ZendeskTool()
+                print(f"✅ Zendesk tool initialized for support domain")
+            except Exception as e:
+                print(f"⚠️ Failed to initialize Zendesk tool: {e}")
+                self.zendesk_tool = None
+            
+            try:
+                self.azure_blob_tool = AzureBlobSharePointTool()
+                print(f"✅ Azure Blob tool initialized")
+            except Exception as e:
+                print(f"⚠️ Failed to initialize Azure Blob tool: {e}")
+                self.azure_blob_tool = None
+                
+            # Explicitly disable JIRA for support domains
+            self.jira_tool = None
+        else:
+            # Regular workflow: JIRA + MindTouch → JIRA tickets
+            print(f"🔧 Building JIRA workflow (regular domain)")
+            print(f"🔧 Initializing JIRA workflow tools...")
+            self.jira_tool = JiraTool()
+            
+            # Explicitly disable Zendesk/Azure for regular domains
+            self.zendesk_tool = None
+            self.azure_blob_tool = None
+            print(f"✅ JIRA workflow tools initialized")
+        
         self.mindtouch_tool = MindTouchTool(customer_email=customer_email)
 
         # Store customer info (assumes method returns dict with organization/role/email)
@@ -94,7 +149,11 @@ class IntelligentQueryProcessor:
         print(f"\n✅ nQuiry initialized for {org} customer")
         print(f"🎭 MindTouch Role: {role}")
         print(f"📧 Customer Email: {email}")
-        print(f"🔄 New Flow: JIRA ({org}) → MindTouch → Create Ticket")
+        
+        if self.is_support_domain:
+            print(f"🎫 Workflow: Zendesk + Azure Blob + MindTouch → Zendesk Tickets")
+        else:
+            print(f"🔄 Workflow: JIRA ({org}) + MindTouch → JIRA Tickets")
 
         # Initialize the LangGraph
         self.graph = self._build_langgraph()
@@ -103,60 +162,89 @@ class IntelligentQueryProcessor:
         self.bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')  # Replace with your region
 
     def _build_langgraph(self):
-        """Build the LangGraph workflow with new routing: JIRA -> MindTouch -> Create Ticket"""
+        """Build the LangGraph workflow with domain-based routing"""
 
         workflow = StateGraph(dict)
 
-        # Add nodes for the simplified flow
-        workflow.add_node("search_jira", self.search_jira_node)
-        workflow.add_node("search_mindtouch", self.search_mindtouch_node)
-        workflow.add_node("format_response", self.format_response_node)
-        workflow.add_node("create_ticket", self.create_ticket_node)
-
-        # Define the new routing logic
-        def should_fallback_to_mindtouch(state) -> str:
-            """Always search MindTouch to combine with JIRA results for comprehensive response"""
-            search_results = state.get('search_results', [])
+        if self.is_support_domain:
+            # Zendesk workflow: Search Zendesk, Azure Blob, and MindTouch
+            workflow.add_node("search_zendesk", self.search_zendesk_node)
+            workflow.add_node("search_azure_blob", self.search_azure_blob_node)
+            workflow.add_node("search_mindtouch", self.search_mindtouch_node)
+            workflow.add_node("format_response", self.format_response_node)
+            workflow.add_node("create_zendesk_ticket", self.create_zendesk_ticket_node)
             
-            if not search_results:
-                print("📖 No JIRA results found - fallback to MindTouch")
-                return "search_mindtouch"
-            else:
-                print("📖 JIRA results found - also searching MindTouch for comprehensive response")
-                return "search_mindtouch"
+            # Sequential search flow for Zendesk domains
+            workflow.add_edge(START, "search_zendesk")
+            workflow.add_edge("search_zendesk", "search_azure_blob")
+            workflow.add_conditional_edges(
+                "search_azure_blob",
+                self.should_search_mindtouch_after_azure,
+                {
+                    "search_mindtouch": "search_mindtouch",
+                    "format_response": "format_response"
+                }
+            )
+            workflow.add_edge("search_mindtouch", "format_response")
+            workflow.add_edge("format_response", END)
+        else:
+            # Regular JIRA workflow
+            workflow.add_node("search_jira", self.search_jira_node)
+            workflow.add_node("search_mindtouch", self.search_mindtouch_node)
+            workflow.add_node("format_response", self.format_response_node)
+            workflow.add_node("create_ticket", self.create_ticket_node)
 
-        def should_create_ticket_or_format(state) -> str:
-            """Decide whether to create ticket or format response"""
-            # Always format response first - the formatter will decide about ticket options
-            print("📝 Formatting comprehensive response with search results")
-            return "format_response"
+            # Define the routing logic for regular workflow
+            def should_fallback_to_mindtouch(state) -> str:
+                """Always search MindTouch to combine with JIRA results for comprehensive response"""
+                search_results = state.get('search_results', [])
+                
+                if not search_results:
+                    print("📖 No JIRA results found - fallback to MindTouch")
+                    return "search_mindtouch"
+                else:
+                    print("📖 JIRA results found - also searching MindTouch for comprehensive response")
+                    return "search_mindtouch"
 
-        # Define edges for simplified sequential flow
-        workflow.add_edge(START, "search_jira")
-        
-        workflow.add_conditional_edges(
-            "search_jira",
-            should_fallback_to_mindtouch,
-            {
-                "search_mindtouch": "search_mindtouch",
-                "format_response": "format_response"
-            }
-        )
-        
-        workflow.add_conditional_edges(
-            "search_mindtouch", 
-            should_create_ticket_or_format,
-            {
-                "format_response": "format_response"
-            }
-        )
-        
-        workflow.add_edge("format_response", END)
+            def should_create_ticket_or_format(state) -> str:
+                """Decide whether to create ticket or format response"""
+                # Always format response first - the formatter will decide about ticket options
+                print("📝 Formatting comprehensive response with search results")
+                return "format_response"
+
+            # Define edges for regular workflow
+            workflow.add_edge(START, "search_jira")
+            
+            workflow.add_conditional_edges(
+                "search_jira",
+                should_fallback_to_mindtouch,
+                {
+                    "search_mindtouch": "search_mindtouch",
+                    "format_response": "format_response"
+                }
+            )
+            
+            workflow.add_conditional_edges(
+                "search_mindtouch", 
+                should_create_ticket_or_format,
+                {
+                    "format_response": "format_response"
+                }
+            )
+            
+            workflow.add_edge("format_response", END)
 
         return workflow.compile()
 
     def search_jira_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """LangGraph Node: Search JIRA for organization-specific tickets and rank results"""
+        # CRITICAL: Only execute for non-support domains
+        if self.is_support_domain:
+            print("🚫 JIRA search skipped - this is a support domain (should use Zendesk)")
+            state['search_results'] = []
+            state['similarity_scores'] = []
+            return state
+            
         try:
             customer_org = self.customer_info.get("organization", "Unknown")
             query = state.get('query', '')
@@ -268,6 +356,243 @@ class IntelligentQueryProcessor:
             state['error'] = f"MindTouch search error: {e}"
             state['search_results'] = []
             state['similarity_scores'] = []
+
+        return state
+
+    def search_zendesk_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """LangGraph Node: Search Zendesk tickets for support domain users"""
+        # CRITICAL: Only execute for support domains
+        if not self.is_support_domain:
+            print("🚫 Zendesk search skipped - not a support domain")
+            state['search_results'] = []
+            state['similarity_scores'] = []
+            return state
+            
+        try:
+            if not self.zendesk_tool:
+                print("⚠️  Zendesk tool not available")
+                state['search_results'] = []
+                state['similarity_scores'] = []
+                return state
+                
+            query = state.get('query', '')
+            
+            print(f"🎫 Searching ALL Zendesk support tickets...")
+            print(f"📝 Query: '{query}'")
+
+            # Search ALL tickets using Zendesk tool (not organization-specific)
+            tickets = self.zendesk_tool.search_tickets(query, organization=None, limit=50)
+
+            if tickets:
+                print(f"📊 Found {len(tickets)} Zendesk tickets total")
+                
+                # Process and rank results with semantic search
+                documents = []
+                for ticket in tickets:
+                    doc = {
+                        'key': ticket.get('key', ''),
+                        'title': ticket.get('summary', ''),
+                        'content': ticket.get('content', ''),
+                        'status': ticket.get('status', ''),
+                        'priority': ticket.get('priority', ''),
+                        'assignee': ticket.get('assignee', ''),
+                        'created': ticket.get('created', ''),
+                        'updated': ticket.get('updated', ''),
+                        'labels': ticket.get('labels', []),
+                        'type': ticket.get('type', ''),
+                        'organization': ticket.get('organization_match', ''),
+                        'platform': 'Zendesk',
+                        'meta': ticket
+                    }
+                    documents.append(doc)
+                
+                # Rank documents with semantic search
+                print("🧠 Ranking Zendesk results with semantic search...")
+                ranked_docs, scores = self.semantic_search.search_documents(
+                    documents, query, learning_manager=self.learning_manager)
+                
+                # Store results as tuples
+                state['search_results'] = list(zip(ranked_docs, scores))
+                state['last_search_source'] = 'ZENDESK'
+                print(f"✅ Ranked {len(ranked_docs)} Zendesk results")
+                
+                # Display brief summary of top results
+                for i, (doc, score) in enumerate(state['search_results'][:3]):
+                    print(f"   {i+1}. {doc.get('key', 'Unknown')}: {doc.get('title', 'No title')[:60]}... (Score: {score:.2f})")
+                    
+            else:
+                state['search_results'] = []
+                state['similarity_scores'] = []
+                print(f"⚠️  No Zendesk tickets found for query: '{query}'")
+
+        except Exception as e:
+            print(f"❌ Error searching Zendesk: {e}")
+            state['error'] = f"Zendesk search error: {e}"
+            state['search_results'] = []
+            state['similarity_scores'] = []
+
+        return state
+
+    def search_azure_blob_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """LangGraph Node: Search Azure Blob Storage for documents - Support domains only"""
+        # CRITICAL: Only execute for support domains
+        if not self.is_support_domain:
+            print("🚫 Azure Blob search skipped - not a support domain")
+            return state
+            
+        try:
+            if not self.azure_blob_tool:
+                print("⚠️  Azure Blob tool not available")
+                return state
+                
+            query = state.get('query', '')
+            print(f"🗂️  Searching Azure Blob Storage...")
+            print(f"📝 Query: '{query}'")
+
+            # Search for documents in Azure Blob Storage (get more results for better semantic ranking)
+            documents = self.azure_blob_tool.search_documents(query, max_results=25)
+
+            if documents:
+                print(f"📊 Found {len(documents)} documents in Azure Blob Storage")
+                
+                # Process and rank results with semantic search
+                blob_docs = []
+                for doc in documents:
+                    blob_doc = {
+                        'key': doc.get('name', ''),
+                        'title': doc.get('name', ''),
+                        'content': doc.get('content', ''),
+                        'url': doc.get('url', ''),
+                        'last_modified': doc.get('last_modified', ''),
+                        'size': doc.get('size', ''),
+                        'type': doc.get('content_type', ''),
+                        'platform': 'Azure Blob',
+                        'meta': doc
+                    }
+                    blob_docs.append(blob_doc)
+                
+                # Rank documents with semantic search
+                print("🧠 Ranking Azure Blob results with semantic search...")
+                ranked_docs, scores = self.semantic_search.search_documents(
+                    blob_docs, query, learning_manager=self.learning_manager)
+                
+                # Combine with existing Zendesk results
+                existing_results = state.get('search_results', [])
+                existing_scores = state.get('similarity_scores', [])
+                
+                azure_results = list(zip(ranked_docs, scores))
+                
+                if existing_results:
+                    print(f"🔗 Combining {len(existing_results)} Zendesk results with {len(azure_results)} Azure Blob results")
+                    state['search_results'] = existing_results + azure_results
+                    state['similarity_scores'] = existing_scores + scores
+                    state['last_search_source'] = 'MULTI'
+                else:
+                    state['search_results'] = azure_results
+                    state['similarity_scores'] = scores
+                    state['last_search_source'] = 'AZURE_BLOB'
+                
+                print(f"✅ Ranked {len(ranked_docs)} Azure Blob results")
+                
+            else:
+                print("⚠️  No documents found in Azure Blob Storage")
+
+        except Exception as e:
+            print(f"❌ Error searching Azure Blob: {e}")
+            state['error'] = f"Azure Blob search error: {e}"
+
+        return state
+
+    def should_search_mindtouch_after_azure(self, state: Dict[str, Any]) -> str:
+        """Conditional router: Check if MindTouch search is needed after Azure Blob search"""
+        
+        search_results = state.get('search_results', [])
+        similarity_scores = state.get('similarity_scores', [])
+        query = state.get('query', '').lower()
+        
+        # Check if Azure Blob found good quality results
+        if search_results and similarity_scores:
+            quality_results = 0
+            high_relevance_results = 0
+            workbench_results = 0
+            
+            for i, result in enumerate(search_results):
+                if i < len(similarity_scores):
+                    score = similarity_scores[i]
+                    
+                    # Extract result info (handle tuple format from semantic search)
+                    if isinstance(result, tuple):
+                        doc_info = result[0]
+                        content = doc_info.get('content', '')
+                        title = doc_info.get('title', '')
+                    else:
+                        content = result.get('content', '')
+                        title = result.get('title', '')
+                    
+                    content_length = len(content)
+                    title_lower = title.lower()
+                    
+                    # Check for workbench-specific content
+                    workbench_keywords = ['workbench', 'upload', 'validation', 'procedure']
+                    if any(keyword in title_lower for keyword in workbench_keywords):
+                        workbench_results += 1
+                    
+                    # Quality scoring
+                    if score > 0.5 or content_length > 150:
+                        quality_results += 1
+                    
+                    if score > 0.6 or (content_length > 100 and any(term in title_lower for term in query.split())):
+                        high_relevance_results += 1
+            
+            # Decision logic
+            if high_relevance_results >= 1:  # At least 1 high relevance result
+                print(f"🎯 Azure Blob found {high_relevance_results} high-relevance results - skipping MindTouch")
+                return "format_response"
+            elif workbench_results >= 1 and quality_results >= 2:  # Workbench content with decent quality
+                print(f"🎯 Azure Blob found {workbench_results} workbench results - skipping MindTouch")
+                return "format_response"
+            elif quality_results >= 3:  # Multiple decent results
+                print(f"🎯 Azure Blob found {quality_results} quality results - skipping MindTouch")
+                return "format_response"
+        
+        print("📄 Azure Blob results insufficient - continuing to MindTouch")
+        return "search_mindtouch"
+
+    def create_zendesk_ticket_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """LangGraph Node: Create Zendesk ticket for support domain users"""
+        try:
+            if not self.zendesk_tool:
+                print("⚠️  Zendesk tool not available")
+                state['error'] = "Zendesk tool not available"
+                return state
+                
+            query = state.get('query', '')
+            customer_email = self.customer_info.get('email', '')
+            
+            print(f"🎫 Creating Zendesk ticket for support domain user...")
+            
+            # Prepare ticket data
+            ticket_data = {
+                'summary': f"Support Request: {query[:80]}{'...' if len(query) > 80 else ''}",
+                'description': f"Customer Query: {query}\n\nCustomer Email: {customer_email}\nOrganization: {self.customer_info.get('organization', 'Unknown')}",
+                'priority': 'normal',
+                'type': 'question',
+                'tags': ['nquiry-auto', 'support-request']
+            }
+            
+            # Create ticket using Zendesk tool
+            result = self.zendesk_tool.create_ticket(ticket_data)
+            
+            if result.get('status') == 'success':
+                state['ticket_created'] = result
+                print(f"✅ Zendesk ticket created: {result.get('ticket_key', 'Unknown')}")
+            else:
+                state['error'] = f"Failed to create Zendesk ticket: {result.get('message', 'Unknown error')}"
+                print(f"❌ {state['error']}")
+
+        except Exception as e:
+            print(f"❌ Error creating Zendesk ticket: {e}")
+            state['error'] = f"Zendesk ticket creation error: {e}"
 
         return state
 
@@ -423,32 +748,122 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
         return state
 
     def create_ticket_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """LangGraph Node: Create simulated support ticket"""
+        """LangGraph Node: Create support ticket (JIRA or Zendesk based on domain)"""
         try:
             # Get user information from state
             user_email = state.get('user_email', '')
             query = state.get('query', '')
+            conversation_history = state.get('history', [])
             
-            print(f"🎫 Creating simulated support ticket for query: {query}")
+            print(f"🎫 Creating support ticket for query: {query}")
             
-            # Use the ResponseFormatter to create a simulated ticket
-            ticket_response = self.response_formatter.create_simulated_ticket(
-                query=query,
-                user_email=user_email,
-                additional_description="User requested ticket creation after insufficient search results"
-            )
+            if self.is_support_domain and self.zendesk_tool:
+                # Create real Zendesk ticket for support domains
+                print("🎫 Creating Zendesk ticket...")
+                
+                # Prepare conversation context for ticket
+                conversation_context = self._prepare_conversation_context(conversation_history, query)
+                
+                # Create ticket data
+                ticket_data = {
+                    "subject": f"Support Request: {query[:100]}",
+                    "description": conversation_context,
+                    "requester_email": user_email,
+                    "priority": "normal",
+                    "type": "question",
+                    "tags": ["api", "automated", "support"]
+                }
+                
+                # Create ticket in Zendesk
+                ticket_result = self.zendesk_tool.create_ticket(ticket_data)
+                
+                if ticket_result.get('success'):
+                    ticket_info = ticket_result['ticket']
+                    ticket_id = ticket_info.get('id')
+                    ticket_url = ticket_info.get('url', '')
+                    
+                    # Format success response
+                    ticket_response = f"""✅ **Zendesk Support Ticket Created Successfully!**
+
+🎫 **Ticket ID:** {ticket_id}
+📧 **Requester:** {user_email}
+🔗 **Ticket URL:** {ticket_url}
+
+**Subject:** {ticket_data['subject']}
+
+**Description:**
+{ticket_data['description'][:300]}{'...' if len(ticket_data['description']) > 300 else ''}
+
+🕒 **Status:** Open
+⏱️ **Created:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+Our support team will review your ticket and respond soon. You can track progress using the ticket ID or URL above."""
+                    
+                    state['ticket_created'] = {
+                        'success': True,
+                        'ticket_id': ticket_id,
+                        'ticket_url': ticket_url,
+                        'platform': 'Zendesk'
+                    }
+                    print(f"✅ Zendesk ticket created successfully: {ticket_id}")
+                    
+                else:
+                    # Fallback if Zendesk creation fails
+                    error_msg = ticket_result.get('error', 'Unknown error')
+                    print(f"❌ Zendesk ticket creation failed: {error_msg}")
+                    ticket_response = f"❌ Failed to create Zendesk ticket: {error_msg}\n\nPlease contact support directly."
+                    state['ticket_created'] = {'success': False, 'error': error_msg}
+                    
+            else:
+                # Create simulated JIRA ticket for regular domains
+                print("🎫 Creating simulated JIRA ticket...")
+                ticket_response = self.response_formatter.create_simulated_ticket(
+                    query=query,
+                    user_email=user_email,
+                    additional_description="User requested ticket creation after insufficient search results"
+                )
+                state['ticket_created'] = {'success': True, 'platform': 'JIRA', 'simulated': True}
             
-            state['ticket_created'] = ticket_response
             state['formatted_response'] = ticket_response
             
-            print("✅ Simulated ticket created successfully")
-            
         except Exception as e:
-            print(f"❌ Error creating simulated ticket: {e}")
+            print(f"❌ Error creating support ticket: {e}")
             state['error'] = f"Ticket creation error: {e}"
             state['formatted_response'] = f"❌ Error creating support ticket: {e}"
 
         return state
+
+    def _prepare_conversation_context(self, history: List[Dict], current_query: str) -> str:
+        """Prepare conversation context for ticket creation"""
+        context_parts = []
+        
+        # Add current query
+        context_parts.append(f"**Current Issue:**\n{current_query}\n")
+        
+        # Add conversation history if available
+        if history and len(history) > 0:
+            context_parts.append("**Conversation History:**")
+            
+            # Get last few messages for context (limit to avoid too long tickets)
+            recent_messages = history[-5:] if len(history) > 5 else history
+            
+            for i, msg in enumerate(recent_messages):
+                role = msg.get('role', 'user')
+                message = msg.get('message', msg.get('content', ''))
+                timestamp = msg.get('timestamp', '')
+                
+                if role == 'user':
+                    context_parts.append(f"\n**User ({timestamp}):** {message}")
+                elif role == 'assistant':
+                    context_parts.append(f"\n**Assistant ({timestamp}):** {message}")
+        
+        # Add system information
+        context_parts.append(f"\n\n**Technical Details:**")
+        context_parts.append(f"- Domain: {'Support Domain (Zendesk)' if self.is_support_domain else 'Regular Domain (JIRA)'}")
+        context_parts.append(f"- Organization: {self.customer_info.get('organization', 'Unknown')}")
+        context_parts.append(f"- Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        
+        return '\n'.join(context_parts)
     
     def create_ticket_node_interactive(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """LangGraph Node: Create support ticket with user interaction (legacy)"""

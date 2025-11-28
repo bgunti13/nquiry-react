@@ -413,7 +413,7 @@ const App = () => {
           console.log('Status update:', statusData)
           setMessages(prev => prev.map(msg => 
             msg.id === loadingMessageId 
-              ? { ...msg, content: `${statusData.icon} ${statusData.status}` }
+              ? { ...msg, content: statusData.status }
               : msg
           ))
         },

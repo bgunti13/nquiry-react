@@ -7,6 +7,7 @@ import json
 import os
 from datetime import datetime
 from customer_role_manager import CustomerRoleMappingManager
+from organization_access_controller import check_organization_access
 
 class TicketCreator:
     """
@@ -61,6 +62,19 @@ class TicketCreator:
         """
         print(f"\n🎫 TICKET CREATION INITIATED")
         print("=" * 50)
+        
+        # Check organization access control first
+        if customer_email:
+            access_check = check_organization_access(query, customer_email)
+            if not access_check['allowed']:
+                print(f"🚫 Access denied: {access_check['message']}")
+                print(f"   Blocked organizations: {access_check['blocked_orgs']}")
+                return {
+                    'status': 'access_denied',
+                    'message': access_check['message'],
+                    'blocked_organizations': access_check['blocked_orgs'],
+                    'user_organization': access_check['user_org']
+                }
         
         # Extract customer domain if email provided
         customer = "UNKNOWN"
@@ -201,6 +215,19 @@ class TicketCreator:
         """
         print(f"\n🎫 STREAMLIT TICKET CREATION")
         print("=" * 50)
+        
+        # Check organization access control first
+        if customer_email:
+            access_check = check_organization_access(query, customer_email)
+            if not access_check['allowed']:
+                print(f"🚫 Access denied: {access_check['message']}")
+                print(f"   Blocked organizations: {access_check['blocked_orgs']}")
+                return {
+                    'status': 'access_denied',
+                    'message': access_check['message'],
+                    'blocked_organizations': access_check['blocked_orgs'],
+                    'user_organization': access_check['user_org']
+                }
         
         # Extract customer domain if email provided
         customer = "UNKNOWN"
@@ -494,6 +521,23 @@ class TicketCreator:
                         ticket_data[field_name] = user_input
                     else:
                         ticket_data[field_name] = 'production'  # Default
+                        
+            elif field_name == 'affected_version':
+                # Auto-populate affected_version with customer's product version from Excel
+                if customer_email:
+                    domain = customer_email.split('@')[-1].lower()
+                    customer_mapping = self.customer_role_manager.get_customer_mapping(domain)
+                    prod_version = customer_mapping.get('prod_version', 'Unknown')
+                    
+                    print(f"🎯 Auto-populated affected version: {prod_version} (from customer Excel data)")
+                    ticket_data[field_name] = prod_version
+                else:
+                    # Fallback if no customer email
+                    user_input = input(prompt).strip()
+                    if user_input:
+                        ticket_data[field_name] = user_input
+                    else:
+                        ticket_data[field_name] = 'Unknown'
                         
             else:
                 # Standard field handling

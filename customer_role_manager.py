@@ -12,6 +12,37 @@ from typing import Dict, List, Optional
 from datetime import datetime
 
 class CustomerRoleMappingManager:
+    def get_all_jira_organisations(self) -> List[str]:
+        """
+        Extract all organization names and aliases from the 'JIRA Organisation' column in LS and HT sheets
+        Returns:
+            List of organization names/aliases
+        """
+        org_names = set()
+        if not os.path.exists(self.excel_file_path):
+            return []
+        try:
+            xl_file = pd.ExcelFile(self.excel_file_path)
+            for sheet_name in xl_file.sheet_names:
+                if sheet_name.strip().upper() not in ['LS', 'HT']:
+                    continue
+                df = pd.read_excel(self.excel_file_path, sheet_name=sheet_name)
+                # Try different possible column names (including trailing space)
+                possible_columns = [
+                    'JIRA Organisation', 'JIRA Organization', 
+                    'JIRA Organisation ', 'JIRA Organization '
+                ]
+                for col in possible_columns:
+                    if col in df.columns:
+                        for val in df[col].dropna().unique():
+                            val = str(val).strip()
+                            if val and val.lower() != 'nan' and val != '':
+                                org_names.add(val)
+                        break  # Found the column, no need to check other variants
+            return list(org_names)
+        except Exception as e:
+            print(f"Error extracting JIRA Organisations: {e}")
+            return []
     """
     Manages customer organization to MindTouch role mappings from Excel file
     """
@@ -19,6 +50,7 @@ class CustomerRoleMappingManager:
     def __init__(self, excel_file_path: str = 'LS-HT Customer Info.xlsx'):
         self.excel_file_path = excel_file_path
         self.mappings = {}
+        self.support_domains = set()  # Track Zendesk support email domains
         self.last_loaded = None
         self.file_last_modified = None
         
@@ -134,6 +166,18 @@ class CustomerRoleMappingManager:
                 # Generate domain from customer name
                 domain = self._generate_domain_from_name(customer_name)
                 
+                # Get Prod. Version if available
+                prod_version = str(row.get('Prod. Version', '')).strip()
+                if prod_version and prod_version.lower() == 'nan':
+                    prod_version = ''
+
+                # Extract Support Email Address if available
+                support_email = str(row.get('Support Email Address', '')).strip()
+                if support_email and support_email.lower() != 'nan' and '@' in support_email:
+                    support_domain = support_email.split('@')[1].lower()
+                    self.support_domains.add(support_domain)
+                    print(f"      📧 Found support domain: {support_domain}")
+                
                 # Store mapping (avoid duplicates by using domain as key)
                 if domain not in self.mappings:
                     self.mappings[domain] = {
@@ -142,10 +186,13 @@ class CustomerRoleMappingManager:
                         'role': f"={role}",
                         'primary_role': f"={role}",
                         'roles': [f"={role}"],
-                        'sheet': sheet_name
+                        'sheet': sheet_name,
+                        'prod_version': prod_version or 'Unknown',
+                        'support_email': support_email if support_email and support_email.lower() != 'nan' else None
                     }
                     customers_processed += 1
-                    print(f"      ✅ {customer_name} ({domain}) → {role}")
+                    version_info = f" (Version: {prod_version})" if prod_version else ""
+                    print(f"      ✅ {customer_name} ({domain}) → {role}{version_info}")
                 else:
                     print(f"      ⚠️  Duplicate domain {domain} for {customer_name}, keeping existing")
                     
@@ -179,6 +226,18 @@ class CustomerRoleMappingManager:
                 # Generate domain from customer name
                 domain = self._generate_domain_from_name(customer_name)
                 
+                # Get Prod. Version if available
+                prod_version = str(row.get('Prod. Version', '')).strip()
+                if prod_version and prod_version.lower() == 'nan':
+                    prod_version = ''
+
+                # Extract Support Email Address if available
+                support_email = str(row.get('Support Email Address', '')).strip()
+                if support_email and support_email.lower() != 'nan' and '@' in support_email:
+                    support_domain = support_email.split('@')[1].lower()
+                    self.support_domains.add(support_domain)
+                    print(f"      📧 Found support domain: {support_domain}")
+                
                 # Store mapping (avoid duplicates)
                 if domain not in self.mappings:
                     self.mappings[domain] = {
@@ -187,10 +246,13 @@ class CustomerRoleMappingManager:
                         'role': f"={role}",
                         'primary_role': f"={role}",
                         'roles': [f"={role}"],
-                        'sheet': sheet_name
+                        'sheet': sheet_name,
+                        'prod_version': prod_version or 'Unknown',
+                        'support_email': support_email if support_email and support_email.lower() != 'nan' else None
                     }
                     customers_processed += 1
-                    print(f"      ✅ {customer_name} ({domain}) → {role}")
+                    version_info = f" (Version: {prod_version})" if prod_version else ""
+                    print(f"      ✅ {customer_name} ({domain}) → {role}{version_info}")
                 else:
                     print(f"      ⚠️  Duplicate domain {domain} for {customer_name}, keeping existing")
                     
@@ -293,6 +355,36 @@ class CustomerRoleMappingManager:
         """
         self.refresh_if_needed()
         return self.mappings.copy()
+    
+    def is_support_domain(self, email: str) -> bool:
+        """
+        Check if the given email belongs to a support domain (Zendesk workflow)
+        
+        Args:
+            email: Email address to check
+            
+        Returns:
+            True if email domain is a support domain, False otherwise
+        """
+        if not email or '@' not in email:
+            return False
+            
+        domain = email.split('@')[1].lower()
+        is_support = domain in self.support_domains
+        
+        if is_support:
+            print(f"🎫 Support domain detected: {email} → Zendesk workflow")
+        
+        return is_support
+    
+    def get_support_domains(self) -> List[str]:
+        """
+        Get list of all support domains
+        
+        Returns:
+            List of support email domains
+        """
+        return list(self.support_domains)
     
     def add_manual_mapping(self, domain: str, organization: str, role: str):
         """
