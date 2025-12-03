@@ -36,13 +36,14 @@ class ImageAnalyzer:
             print(f"❌ Error creating Bedrock client: {e}")
             return None
 
-    def analyze_images_with_query(self, images: List[Dict], user_query: str = "") -> Dict:
+    def analyze_images_with_query(self, images: List[Dict], user_query: str = "", fast_mode: bool = False) -> Dict:
         """
         Analyze images with user query context to extract relevant information
         
         Args:
             images: List of image data with base64 content
             user_query: User's question or description of the issue
+            fast_mode: If True, provides faster, more concise analysis for search
             
         Returns:
             Dict with analysis results and extracted information
@@ -74,15 +75,19 @@ class ImageAnalyzer:
                 })
 
             # Create analysis prompt
-            analysis_prompt = self._create_analysis_prompt(user_query, len(images))
+            if fast_mode:
+                analysis_prompt = self._create_fast_analysis_prompt(user_query, len(images))
+            else:
+                analysis_prompt = self._create_analysis_prompt(user_query, len(images))
             
             # Prepare message content with both text and images
             message_content = [{"type": "text", "text": analysis_prompt}] + image_contents
 
             # Prepare the request body
+            max_tokens = 500 if fast_mode else 2000  # Much fewer tokens for fast mode
             request_body = {
                 "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 2000,
+                "max_tokens": max_tokens,
                 "messages": [
                     {
                         "role": "user",
@@ -181,6 +186,25 @@ If the images show UI elements, describe the workflow or process being shown.
 If the images contain code, explain what the code does and identify any potential issues.
 
 Please be thorough and specific in your analysis.
+"""
+        
+        return base_prompt
+
+    def _create_fast_analysis_prompt(self, user_query: str, num_images: int) -> str:
+        """Create a fast, concise analysis prompt for search optimization"""
+        base_prompt = f"""Analyze the {"image" if num_images == 1 else f"{num_images} images"} and extract text quickly.
+
+User Query: "{user_query}"
+
+ONLY provide:
+
+## EXTRACTED TEXT
+[Extract any text visible in the image(s) - be concise]
+
+## QUICK SUMMARY  
+[2-3 sentence summary of the main issue/topic]
+
+Focus on speed - extract only the essential text and provide a brief summary for search purposes.
 """
         
         return base_prompt

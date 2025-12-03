@@ -7,6 +7,7 @@ const TicketForm = ({
   isEscalation = false, 
   customerEmail, 
   chatHistory = [], 
+  smartConfig = null,
   onTicketCreated, 
   onCancel 
 }) => {
@@ -21,8 +22,30 @@ const TicketForm = ({
   const [populatedFields, setPopulatedFields] = useState({})
   const [isLoading, setIsLoading] = useState(true)
 
-  // Preview ticket category and get dynamic fields
+  // Initialize with smart config if provided
   useEffect(() => {
+    if (smartConfig && smartConfig.smart_questions) {
+      console.log('🧠 Using smart ticket configuration')
+      setTicketCategory(smartConfig.category)
+      setIsLoading(false)
+      
+      // Pre-fill form data with suggested values from smart questions
+      const initialFormData = {}
+      smartConfig.smart_questions.forEach(question => {
+        if (question.suggested_value) {
+          initialFormData[question.field] = question.suggested_value
+        }
+      })
+      
+      // Add smart config data
+      initialFormData.priority = smartConfig.priority || 'Medium'
+      initialFormData.description = smartConfig.description || query
+      
+      setFormData(initialFormData)
+      return
+    }
+    
+    // Original preview logic for non-smart config cases
     const previewTicketCategory = async () => {
       try {
         setIsLoading(true)
@@ -62,10 +85,10 @@ const TicketForm = ({
       }
     }
     
-    if (query && customerEmail) {
+    if (query && customerEmail && !smartConfig) {
       previewTicketCategory()
     }
-  }, [query, customerEmail])
+  }, [query, customerEmail, smartConfig])
 
   // Generate conversation summary for ticket description using LLM
   const generateConversationSummary = async () => {
@@ -378,13 +401,70 @@ const TicketForm = ({
 
         {/* Dynamic Form */}
         <form onSubmit={handleSubmit} className="space-y-6">
-          {Object.keys(requiredFields).length > 0 ? (
+          {smartConfig && smartConfig.smart_questions ? (
+            /* Smart Questions Section */
+            <div className="space-y-4">
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <p className="text-sm font-medium text-blue-700 mb-2">
+                  🧠 Smart Questions (AI has pre-filled suggested values based on our conversation):
+                </p>
+                <p className="text-xs text-blue-600">
+                  Please review and confirm the details below. You can modify any pre-filled values as needed.
+                </p>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {smartConfig.smart_questions.map((question, index) => (
+                  <div key={question.field || index} className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      {question.question}
+                      {question.required && <span className="text-red-500 ml-1">*</span>}
+                    </label>
+                    <div className="relative">
+                      {question.type === 'number' ? (
+                        <input
+                          type="number"
+                          value={formData[question.field] || ''}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            [question.field]: e.target.value
+                          })}
+                          placeholder={question.suggested_value || ''}
+                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          required={question.required}
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={formData[question.field] || ''}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            [question.field]: e.target.value
+                          })}
+                          placeholder={question.suggested_value || ''}
+                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          required={question.required}
+                        />
+                      )}
+                      {question.suggested_value && (
+                        <div className="mt-1 text-xs text-green-600">
+                          💡 Suggested: {question.suggested_value}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : Object.keys(requiredFields).length > 0 ? (
+            /* Regular Dynamic Fields */
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {Object.entries(requiredFields).map(([fieldName, fieldDescription]) => 
                 renderField(fieldName, fieldDescription)
               )}
             </div>
           ) : (
+            /* No Fields Required */
             <div className="text-center py-8 text-gray-500">
               <AlertCircle className="w-12 h-12 mx-auto mb-4 text-gray-400" />
               <p>No additional fields required for this ticket category.</p>

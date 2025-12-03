@@ -25,6 +25,137 @@ class IntelligentAutoTicketCreator(TicketCreator):
         )
         self.model_id = "anthropic.claude-3-5-sonnet-20240620-v1:0"
         
+    def analyze_query_with_ai_response(self, original_query: str, ai_response: str, customer_email: str) -> Dict:
+        """
+        Use AI to analyze both the user query and AI response to create intelligent ticket questions
+        """
+        try:
+            # Get customer info for context
+            customer_domain = customer_email.split('@')[-1] if customer_email else 'unknown.com'
+            customer_mapping = self.customer_role_manager.get_customer_mapping(customer_domain)
+            
+            # Check if this is a support domain (should create Zendesk tickets)
+            is_support_domain = self.customer_role_manager.is_support_domain(customer_email)
+            print(f"🔍 DEBUG: customer_email={customer_email}, domain={customer_domain}, is_support_domain={is_support_domain}")
+            print(f"🔍 DEBUG: support_domains={self.customer_role_manager.get_support_domains()}")
+            
+            if is_support_domain:
+                # Support domains should create Zendesk tickets, not NOC tickets
+                print(f"🎫 Support domain detected - will create Zendesk ticket instead of NOC")
+                return self._create_zendesk_ticket_smart(original_query, customer_email, ai_response)
+            
+            # Force database password requests to be NOC for non-support domains only
+            is_database_request = 'password' in original_query.lower() and any(keyword in original_query.lower() for keyword in ['database', 'db', 'rodb', 'reset'])
+            
+            if is_database_request:
+                force_category = "NOC"
+                category_instruction = "IMPORTANT: This is a database password reset request and MUST be categorized as NOC."
+                category_rule = "1. TICKET CATEGORY: MUST BE 'NOC' for database password resets, access issues, and infrastructure problems."
+            else:
+                force_category = None
+                category_instruction = "IMPORTANT: Analyze the request type to determine the appropriate category."
+                category_rule = "1. TICKET CATEGORY: Choose the most appropriate category based on the request type:\n   - NOC: Database/infrastructure issues, password resets, system access\n   - COPS: Customer onboarding, setup, configuration\n   - CSP: Data sync, integration, platform issues\n   - MNHT: Documentation, training, how-to questions\n   - MNLS: License, subscription, billing issues"
+                
+            analysis_prompt = f"""
+You are an expert support ticket creator. Analyze the user's original query and the AI response to create intelligent questions for ticket creation.
+
+ORIGINAL USER QUERY: "{original_query}"
+
+AI RESPONSE PROVIDED TO USER:
+{ai_response}
+
+CUSTOMER EMAIL: {customer_email}
+CUSTOMER ORGANIZATION: {customer_mapping.get('organization', 'Unknown')}
+
+{category_instruction}
+
+CRITICAL INSTRUCTION: Carefully search the AI response for specific details relevant to the request type.
+
+Based on the query and AI response, determine:
+
+{category_rule}
+
+2. SMART_QUESTIONS: Extract specific details from BOTH the AI response and user query. Search thoroughly for:
+   - Database hostnames (patterns: *.cloud.modeln.com, *-rdb.*, *-rodb.*, etc.)
+   - Service names (SEGPRD, RODB, database names)
+   - Port numbers (usually 4 digits)
+   - Environment names (Production, RODB Production, etc.)
+
+3. PRIORITY: Based on urgency indicators:
+   - Critical: System down, cannot work, production outage
+   - High: Blocking work, urgent deadline  
+   - Medium: Important but not blocking
+   - Low: Enhancement, non-urgent
+
+4. DESCRIPTION: A professional description for the ticket
+
+Respond in JSON format with EXACT extracted values:
+{{
+    "category": "{force_category if force_category else '[DYNAMIC_CATEGORY]'}",
+    "priority": "[High|Medium|Low]", 
+    "description": "[Professional description based on request type]",
+    "smart_questions": [
+        {{
+            "field": "database_hostname",
+            "question": "Database Hostname:",
+            "suggested_value": "EXACT hostname from AI response or empty if not found",
+            "required": true,
+            "type": "text"
+        }},
+        {{
+            "field": "service_name", 
+            "question": "Service Name:",
+            "suggested_value": "EXACT service name from AI response or empty if not found",
+            "required": true,
+            "type": "text"
+        }},
+        {{
+            "field": "environment",
+            "question": "Environment:",
+            "suggested_value": "EXACT environment from AI response or 'Production' if not specified",
+            "required": true,
+            "type": "text"
+        }},
+        {{
+            "field": "port_number",
+            "question": "Port Number:",
+            "suggested_value": "EXACT port from AI response or empty if not found", 
+            "required": false,
+            "type": "number"
+        }}
+    ],
+    "reasoning": "brief explanation of what was extracted from the AI response"
+}}
+"""
+
+            body = {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 1500,
+                "messages": [{"role": "user", "content": analysis_prompt}]
+            }
+            
+            response = self.bedrock_client.invoke_model(
+                modelId=self.model_id,
+                body=json.dumps(body),
+                contentType='application/json'
+            )
+            
+            response_body = json.loads(response['body'].read())
+            if 'content' in response_body and len(response_body['content']) > 0:
+                analysis_text = response_body['content'][0]['text']
+                # Extract JSON from the response
+                json_start = analysis_text.find('{')
+                json_end = analysis_text.rfind('}') + 1
+                if json_start >= 0 and json_end > json_start:
+                    analysis_json = json.loads(analysis_text[json_start:json_end])
+                    return analysis_json
+            
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error analyzing query and AI response: {e}")
+            return None
+
     def analyze_query_for_ticket_info(self, query: str, customer_email: str) -> Dict:
         """
         Use AI to analyze the user query and extract ticket information
@@ -165,6 +296,236 @@ Respond in JSON format:
                 'message': f"I need more information to create your ticket. {analysis.get('reasoning', '')}",
                 'suggested_category': analysis.get('category'),
                 'analysis': analysis
+            }
+
+    def create_smart_ticket_with_context(self, original_query: str, ai_response: str, customer_email: str) -> Dict:
+        """
+        Create a ticket with smart conversational questions based on AI response context
+        
+        Args:
+            original_query: User's original query
+            ai_response: AI response that contains relevant information
+            customer_email: Customer email for context
+            
+        Returns:
+            Dictionary with conversational question for ticket creation
+        """
+        print(f"\n🧠 SMART CONVERSATIONAL TICKET CREATION")
+        print("=" * 60)
+        
+        # Analyze both query and AI response
+        print("🔍 Analyzing query and AI response for smart questions...")
+        analysis = self.analyze_query_with_ai_response(original_query, ai_response, customer_email)
+        
+        if not analysis:
+            print("⚠️ AI analysis failed, using standard ticket creation")
+            return self.create_automatic_ticket(original_query, customer_email)
+        
+        # Check if a ticket was already created (e.g., Zendesk ticket for support domains)
+        if analysis.get('status') == 'created' and analysis.get('ticket_data'):
+            print("✅ Ticket already created during analysis (Zendesk), returning result")
+            return analysis
+        
+        print(f"✅ Smart Analysis Complete:")
+        print(f"   Category: {analysis.get('category', 'Unknown')}")
+        print(f"   Priority: {analysis.get('priority', 'Medium')}")
+        print(f"   Smart Questions: {len(analysis.get('smart_questions', []))}")
+        print(f"🔍 Full analysis result: {json.dumps(analysis, indent=2)}")
+        
+        # Get the first question to ask conversationally
+        smart_questions = analysis.get('smart_questions', [])
+        if smart_questions:
+            first_question = smart_questions[0]
+            suggested_value = first_question.get('suggested_value', '')
+            
+            print(f"❓ First question: {first_question.get('question', 'Unknown')}")
+            print(f"💡 Suggested value: '{suggested_value}'")
+            
+            # Create conversational question message
+            question_text = f"I'll help you create a {analysis.get('category', 'support')} ticket for your database password reset request.\n\n"
+            
+            if suggested_value:
+                question_text += f"**{first_question['question']}**\nBased on our conversation, I believe this should be: `{suggested_value}`\n\nIs this correct, or would you like to specify a different value?"
+            else:
+                question_text += f"**{first_question['question']}**\nPlease provide this information to proceed with your ticket creation."
+            
+            # Store the ticket creation context for next response
+            return {
+                'status': 'asking_question',
+                'category': analysis.get('category'),
+                'priority': analysis.get('priority'),
+                'description': analysis.get('description'),
+                'current_question': first_question,
+                'remaining_questions': smart_questions[1:],
+                'collected_answers': {},
+                'original_query': original_query,
+                'customer_email': customer_email,
+                'message': question_text,
+                'response': question_text
+            }
+        
+        # No questions needed, create ticket directly
+        return self._create_ticket_automatically(original_query, customer_email, analysis)
+
+    def continue_smart_ticket_conversation(self, user_answer: str, ticket_context: Dict) -> Dict:
+        """
+        Continue the conversational ticket creation by processing user's answer
+        and asking the next question or creating the ticket
+        """
+        print(f"\n💬 CONTINUING SMART TICKET CONVERSATION")
+        print(f"👤 User answer: '{user_answer}'")
+        print(f"📋 Ticket context keys: {list(ticket_context.keys())}")
+        print("=" * 50)
+        
+        current_question = ticket_context.get('current_question', {})
+        remaining_questions = ticket_context.get('remaining_questions', [])
+        collected_answers = ticket_context.get('collected_answers', {})
+        
+        print(f"❓ Current question field: {current_question.get('field')}")
+        print(f"📊 Remaining questions: {len(remaining_questions)}")
+        print(f"💾 Collected answers so far: {list(collected_answers.keys())}")
+        
+        # Process the current answer
+        field_name = current_question.get('field')
+        if field_name:
+            # Check if user confirmed the suggested value or provided a new one
+            suggested_value = current_question.get('suggested_value', '')
+            user_answer_lower = user_answer.lower().strip()
+            
+            print(f"🔍 Suggested value: '{suggested_value}'")
+            print(f"🔍 User answer: '{user_answer_lower}'")
+            
+            if user_answer_lower in ['yes', 'correct', 'that\'s right', 'confirmed', 'ok', 'okay', 'y']:
+                # User confirmed the suggested value
+                collected_answers[field_name] = suggested_value
+                print(f"✅ User confirmed: {field_name} = {suggested_value}")
+            else:
+                # User provided a different value
+                collected_answers[field_name] = user_answer.strip()
+                print(f"✅ User provided: {field_name} = {user_answer.strip()}")
+        else:
+            print("⚠️ No current question field found!")
+        
+        # Check if there are more questions
+        if remaining_questions:
+            print(f"➡️ Moving to next question ({len(remaining_questions)} remaining)")
+            next_question = remaining_questions[0]
+            remaining_after_next = remaining_questions[1:]
+            suggested_value = next_question.get('suggested_value', '')
+            
+            print(f"❓ Next question: {next_question.get('question')}")
+            print(f"💡 Next suggested value: '{suggested_value}'")
+            
+            # Create next conversational question
+            if suggested_value:
+                question_text = f"**{next_question['question']}**\nBased on our conversation, I believe this should be: `{suggested_value}`\n\nIs this correct, or would you like to specify a different value?"
+            else:
+                question_text = f"**{next_question['question']}**\nPlease provide this information to continue with your ticket creation."
+            
+            # Update context for next iteration
+            updated_context = ticket_context.copy()
+            updated_context['current_question'] = next_question
+            updated_context['remaining_questions'] = remaining_after_next
+            updated_context['collected_answers'] = collected_answers
+            
+            print(f"🔄 Returning next question, context updated")
+            return {
+                'status': 'asking_question',
+                'message': question_text,
+                'response': question_text,
+                'ticket_context': updated_context
+            }
+        
+        # All questions answered, create the ticket
+        print(f"🎫 All questions answered! Creating ticket with collected data:")
+        for field, value in collected_answers.items():
+            print(f"   ✅ {field}: {value}")
+        
+        # Create ticket with collected information
+        result = self._create_ticket_with_collected_answers(
+            ticket_context.get('original_query'),
+            ticket_context.get('customer_email'),
+            ticket_context.get('category'),
+            ticket_context.get('priority'),
+            ticket_context.get('description'),
+            collected_answers
+        )
+        
+        print(f"🎫 Ticket creation result: {result.get('status')}")
+        return result
+
+    def _create_ticket_with_collected_answers(self, original_query: str, customer_email: str, 
+                                           category: str, priority: str, description: str, 
+                                           collected_answers: Dict) -> Dict:
+        """
+        Create the final ticket with all collected information
+        """
+        try:
+            # Extract customer info
+            customer_domain = customer_email.split('@')[-1] if customer_email else 'unknown.com'
+            domain_to_customer = {
+                'amd.com': 'AMD',
+                'novartis.com': 'Novartis',
+                'wdc.com': 'Wdc',
+                'abbott.com': 'Abbott',
+                'abbvie.com': 'Abbvie',
+                'amgen.com': 'Amgen'
+            }
+            customer = domain_to_customer.get(customer_domain, customer_domain.split('.')[0].capitalize())
+            
+            # Generate ticket data
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            ticket_id = f"TICKET_{category}_{customer}_{timestamp}"
+            
+            # Generate JIRA ticket ID
+            import random
+            random_number = random.randint(10000, 99999)
+            jira_ticket_id = f"{category}-{random_number}"
+            
+            # Build detailed description with technical details
+            detailed_description = description
+            if collected_answers:
+                technical_details = []
+                for field, value in collected_answers.items():
+                    field_label = field.replace('_', ' ').title()
+                    technical_details.append(f"• {field_label}: {value}")
+                
+                if technical_details:
+                    detailed_description += f"\n\n**Technical Details:**\n" + "\n".join(technical_details)
+            
+            ticket_data = {
+                'ticket_id': ticket_id,
+                'jira_ticket_id': jira_ticket_id,
+                'category': category,
+                'customer': customer,
+                'customer_email': customer_email,
+                'original_query': original_query,
+                'created_date': datetime.now().isoformat(),
+                'priority': priority,
+                'description': detailed_description
+            }
+            
+            # Save ticket to file
+            self.save_ticket_to_file(ticket_data)
+            
+            print(f"✅ Smart conversational ticket created successfully!")
+            print(f"   Ticket ID: {ticket_id}")
+            print(f"   Category: {category}")
+            print(f"   Priority: {priority}")
+            
+            return {
+                'status': 'created',
+                'ticket_id': ticket_id,
+                'ticket_data': ticket_data,
+                'message': f"✅ **Ticket Created Successfully!**\n\n🎫 **Ticket ID:** {ticket_id}\n📧 **Category:** {category}\n⚡ **Priority:** {priority}\n\nYour database password reset request has been submitted with all the necessary details. Our support team will process your request and provide you with new credentials.\n\nYou should receive an update shortly via email. Is there anything else I can help you with?",
+                'response': f"✅ **Ticket Created Successfully!**\n\n🎫 **Ticket ID:** {ticket_id}\n📧 **Category:** {category}\n⚡ **Priority:** {priority}\n\nYour database password reset request has been submitted with all the necessary details. Our support team will process your request and provide you with new credentials.\n\nYou should receive an update shortly via email. Is there anything else I can help you with?"
+            }
+            
+        except Exception as e:
+            print(f"❌ Error creating smart conversational ticket: {e}")
+            return {
+                'status': 'error',
+                'message': f'Error creating ticket: {str(e)}'
             }
     
     def _create_ticket_automatically(self, query: str, customer_email: str, analysis: Dict) -> Dict:
@@ -374,7 +735,8 @@ Our support team will review your request and respond accordingly. You can downl
         
         ticket_id = ticket_data.get('ticket_id', 'UNKNOWN')
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"ticket_{ticket_data.get('creation_method', 'standard')}_{ticket_id.replace('TICKET_', '')}_{timestamp}.txt"
+        # Use ticket type indicator instead of creation_method
+        filename = f"ticket_automatic_ai_{ticket_id.replace('TICKET_', '')}_{timestamp}.txt"
         filepath = os.path.join(output_dir, filename)
         
         # Format ticket content
@@ -388,69 +750,70 @@ Our support team will review your request and respond accordingly. You can downl
     
     def _format_enhanced_ticket_content(self, ticket_data: Dict) -> str:
         """Format ticket content with AI analysis information"""
-        creation_method = ticket_data.get('creation_method', 'standard')
-        ai_analysis = ticket_data.get('ai_analysis', {})
         
-        if creation_method == 'minimal_communication_ai':
-            header = "MINIMAL COMMUNICATION TICKET"
-            subheader = "Created using AI-powered field extraction"
-        elif creation_method == 'automatic_ai':
-            header = "INTELLIGENT AUTOMATIC TICKET"
-            subheader = "Created using AI analysis with high confidence"
-        else:
-            header = "SUPPORT TICKET"
-            subheader = "Standard ticket creation"
+        header = "AUTOMATIC AI TICKET"
         
         content = f"""{header}
 {'=' * len(header)}
 
-{subheader}
-Creation Method: {creation_method.replace('_', ' ').title()}
-AI Completeness Score: {ticket_data.get('completeness_score', 0.0):.1%}
-
-Ticket Id: {ticket_data.get('ticket_id', 'N/A')}
+Ticket ID: {ticket_data.get('ticket_id', 'N/A')}
+Jira Ticket ID: {ticket_data.get('jira_ticket_id', 'N/A')}
 Category: {ticket_data.get('category', 'N/A')}
 Customer: {ticket_data.get('customer', 'N/A')}
-Customer Email: {ticket_data.get('customer_email', 'N/A')}
-Original Query: {ticket_data.get('original_query', 'N/A')}
-Created Date: {ticket_data.get('created_date', 'N/A')}"""
-
-        if creation_method in ['automatic_ai', 'minimal_communication_ai']:
-            content += f"""
-Creation Method: {creation_method}
-Ai Extraction Used: {ticket_data.get('ai_extraction_used', True)}
-Completeness Score: {ticket_data.get('completeness_score', 0.0)}"""
-
-        # Add ticket fields
-        content += f"""
 Priority: {ticket_data.get('priority', 'Medium')}
-Area Affected: {ticket_data.get('area', ticket_data.get('affected_area', 'N/A'))}
-Environment: {ticket_data.get('environment', 'N/A')}
-Description: {ticket_data.get('description', 'N/A')}"""
+Description: {ticket_data.get('description', 'N/A')}
 
-        # Add auto-populated fields
-        auto_fields = ['project', 'work_type', 'summary', 'cloud_operations_request_type', 'support_org']
-        for field in auto_fields:
-            if field in ticket_data:
-                field_name = field.replace('_', ' ').title()
-                content += f"\n{field_name}: {ticket_data[field]}"
-
-        if ai_analysis and creation_method in ['automatic_ai', 'minimal_communication_ai']:
-            content += f"""
-
-AI ANALYSIS DETAILS:
-===================
-Reasoning: {ai_analysis.get('reasoning', 'N/A')}
-Detected Category: {ai_analysis.get('category', 'N/A')}
-Confidence Level: {ticket_data.get('completeness_score', 0.0):.1%}"""
-
-            if ai_analysis.get('missing_info'):
-                content += f"\nMissing Information: {', '.join(ai_analysis['missing_info'])}"
-
-        content += f"""
+This ticket was created automatically using AI analysis.
 
 TICKET STATUS: CREATED
 NEXT STEPS: Support team will review and respond
 """
 
         return content
+    
+    def _create_zendesk_ticket_smart(self, original_query: str, customer_email: str, ai_response: str) -> Dict:
+        """
+        Create a Zendesk ticket for support domains instead of NOC ticket
+        """
+        try:
+            print(f"🎫 Creating Zendesk ticket for support domain: {customer_email}")
+            
+            # Use the enhanced Zendesk ticket creation from fastapi_server
+            from fastapi_server import create_zendesk_ticket_intelligent
+            
+            # Get conversation context if available
+            conversation_context = []
+            try:
+                from chat_history_manager import ChatHistoryManager
+                chat_manager = ChatHistoryManager()
+                conversation_context = chat_manager.get_history(customer_email) or []
+            except Exception as e:
+                print(f"⚠️ Could not get conversation context: {e}")
+            
+            # Create Zendesk ticket with AI analysis
+            zendesk_result = create_zendesk_ticket_intelligent(
+                original_query, 
+                customer_email, 
+                ai_response=ai_response, 
+                conversation_context=conversation_context
+            )
+            print(f"🔍 DEBUG: Zendesk result = {zendesk_result}")
+            
+            if zendesk_result.get('status') == 'created':
+                return {
+                    'status': 'created',
+                    'ticket_data': zendesk_result.get('ticket_data', {}),
+                    'message': f"✅ Zendesk support ticket created successfully!\n\n**Ticket ID:** {zendesk_result.get('ticket_data', {}).get('ticket_id', 'N/A')}\n\nYour support request has been submitted to our Zendesk system and our team will review it shortly. You should receive updates via email.\n\nIs there anything else I can help you with today?"
+                }
+            else:
+                return {
+                    'status': 'error',
+                    'message': f"Failed to create Zendesk ticket: {zendesk_result.get('message', 'Unknown error')}"
+                }
+                
+        except Exception as e:
+            print(f"❌ Error creating Zendesk ticket: {e}")
+            return {
+                'status': 'error',
+                'message': f"Failed to create Zendesk ticket: {str(e)}"
+            }

@@ -32,6 +32,105 @@ const Sidebar = ({
   const [filteredConversations, setFilteredConversations] = useState([])
   const [filteredTickets, setFilteredTickets] = useState([])
 
+  // Function to generate intelligent conversation titles
+  const generateConversationTitle = (messages) => {
+    if (!messages || messages.length === 0) {
+      return 'New Conversation'
+    }
+
+    // Find the first meaningful user message (skip greetings)
+    const meaningfulMessage = messages.find(msg => {
+      if (msg.type !== MESSAGE_TYPES.USER || !msg.content) return false
+      
+      const content = msg.content.toLowerCase().trim()
+      
+      // Skip common greetings
+      const greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening']
+      if (greetings.includes(content)) return false
+      
+      // Skip very short messages
+      if (content.length < 10) return false
+      
+      return true
+    })
+
+    if (meaningfulMessage) {
+      let title = meaningfulMessage.content.trim()
+      
+      // Extract key topics and generate smart titles
+      const content = title.toLowerCase()
+      
+      // Technical issues
+      if (content.includes('error') || content.includes('issue') || content.includes('problem')) {
+        if (content.includes('sync')) return '🔄 Sync Issue Help'
+        if (content.includes('login') || content.includes('authentication')) return '🔐 Login Problem'
+        if (content.includes('deployment')) return '🚀 Deployment Issue'
+        if (content.includes('database') || content.includes('db')) return '🗄️ Database Problem'
+        if (content.includes('api')) return '🔌 API Issue'
+        return '⚠️ Technical Issue'
+      }
+      
+      // Configuration questions
+      if (content.includes('how to') || content.includes('configure') || content.includes('setup')) {
+        if (content.includes('salesforce')) return '🏢 Salesforce Setup'
+        if (content.includes('database')) return '🗄️ Database Configuration'
+        if (content.includes('user') || content.includes('account')) return '👥 User Management'
+        return '⚙️ Configuration Help'
+      }
+      
+      // Version and update queries
+      if (content.includes('version') || content.includes('update') || content.includes('upgrade')) {
+        return '📦 Version & Updates'
+      }
+      
+      // Support and ticket requests
+      if (content.includes('support') || content.includes('ticket') || content.includes('help')) {
+        return '🎫 Support Request'
+      }
+      
+      // Data related
+      if (content.includes('data') || content.includes('report')) {
+        if (content.includes('sync')) return '📊 Data Sync Query'
+        if (content.includes('missing') || content.includes('not showing')) return '📊 Data Missing'
+        return '📊 Data Question'
+      }
+      
+      // Account and user management
+      if (content.includes('account') || content.includes('user') || content.includes('permission')) {
+        return '👥 Account Management'
+      }
+      
+      // General questions
+      if (content.includes('what') || content.includes('why') || content.includes('when')) {
+        // Extract the main topic after question words
+        const words = title.split(' ')
+        const topicWords = words.slice(1, 4).join(' ')
+        return `❓ ${topicWords.charAt(0).toUpperCase()}${topicWords.slice(1)}`
+      }
+      
+      // Fallback: use first meaningful part of the message
+      const words = title.split(' ')
+      let shortTitle = words.slice(0, 4).join(' ')
+      
+      // Remove common stop words from the end
+      shortTitle = shortTitle.replace(/\b(the|and|or|but|in|on|at|to|for|of|with|by)\s*$/i, '').trim()
+      
+      // Capitalize first letter
+      shortTitle = shortTitle.charAt(0).toUpperCase() + shortTitle.slice(1)
+      
+      return shortTitle.length > 35 ? shortTitle.substring(0, 35) + '...' : shortTitle
+    }
+    
+    // If no meaningful message found, try to use the first non-greeting message
+    const firstMessage = messages.find(msg => msg.type === MESSAGE_TYPES.USER && msg.content)
+    if (firstMessage) {
+      const title = firstMessage.content.trim()
+      return title.length > 35 ? title.substring(0, 35) + '...' : title
+    }
+    
+    return 'New Conversation'
+  }
+
   // Load conversation history and recent tickets
   useEffect(() => {
     console.log('🔄 Sidebar useEffect triggered:', { 
@@ -161,17 +260,18 @@ const Sidebar = ({
                   shouldStartNewConversation = true;
                 }
               }
-            }            if (shouldStartNewConversation) {
+            }
+            
+            if (shouldStartNewConversation) {
               // Save the previous conversation
               if (currentConversation) {
                 conversations.push(currentConversation);
               }
               
               // Start a new conversation
-              const firstUserMessage = (msg.role === 'user' && !msg.message.startsWith('[FEEDBACK]')) ? msg.message : 'Conversation';
               currentConversation = {
                 id: conversationId++,
-                title: firstUserMessage.substring(0, 50) + (firstUserMessage.length > 50 ? '...' : ''),
+                title: 'New Conversation', // Will be updated with intelligent title later
                 timestamp: msg.timestamp || new Date().toISOString(),
                 messageCount: 0,
                 lastMessage: '',
@@ -198,14 +298,38 @@ const Sidebar = ({
               continue;
             }
             
+            // Debug: Log every message being processed
+            console.log('📝 Processing message:', {
+              role: msg.role,
+              messageType: msg.role === 'user' ? MESSAGE_TYPES.USER : MESSAGE_TYPES.BOT,
+              content: msg.message?.substring(0, 50) + (msg.message?.length > 50 ? '...' : ''),
+              timestamp: msg.timestamp,
+              session_id: msg.session_id
+            });
+            
             // Add message to current conversation
             const messageType = msg.role === 'user' ? MESSAGE_TYPES.USER : MESSAGE_TYPES.BOT;
-            currentConversation.messages.push({
+            const messageData = {
               id: Date.now() + Math.random() + i, // Unique ID for the message
               type: messageType,
               content: msg.message,
               timestamp: formattedTime,
               originalTimestamp: msg.timestamp // Keep original timestamp for comparison
+            };
+            
+            // Preserve images if they exist (for user messages)
+            if (msg.images && msg.images.length > 0) {
+              messageData.images = msg.images;
+              console.log('🖼️ Preserving', msg.images.length, 'images for message:', msg.message.substring(0, 50));
+            }
+            
+            currentConversation.messages.push(messageData);
+            
+            // Debug: Log when message is added to conversation
+            console.log(`➕ Added ${messageType} message to conversation:`, {
+              messageContent: msg.message?.substring(0, 30) + '...',
+              conversationTitle: currentConversation.title?.substring(0, 30) + '...',
+              totalMessagesInConv: currentConversation.messages.length
             });
             
             currentConversation.messageCount++;
@@ -213,17 +337,17 @@ const Sidebar = ({
             
             // Always update conversation timestamp to the latest message timestamp
             currentConversation.timestamp = msg.timestamp || new Date().toISOString();
-            
-            // Update conversation title to be the first user message in this conversation (excluding feedback)
-            if (msg.role === 'user' && !msg.message.startsWith('[FEEDBACK]') && currentConversation.messages.filter(m => m.type === MESSAGE_TYPES.USER).length === 1) {
-              currentConversation.title = msg.message.substring(0, 50) + (msg.message.length > 50 ? '...' : '');
-            }
           }
           
           // Don't forget the last conversation
           if (currentConversation) {
             conversations.push(currentConversation);
           }
+          
+          // Generate intelligent titles for all conversations
+          conversations.forEach(conversation => {
+            conversation.title = generateConversationTitle(conversation.messages);
+          });
           
           // Reverse to show most recent conversations first and limit to 5
           const sortedConversations = conversations.reverse().slice(0, 5);
@@ -241,21 +365,21 @@ const Sidebar = ({
         const mockConversations = [
           {
             id: 1,
-            title: "Salesforce accounts sync issue",
+            title: "🔄 Salesforce Sync Issue",
             timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
             messageCount: 6,
             lastMessage: "Would you like me to create a support ticket?"
           },
           {
             id: 2,
-            title: "CDM Workbench NO DATA TO REPORT",
+            title: "📊 Data Missing from Reports",
             timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
             messageCount: 4,
             lastMessage: "Please check the data configuration"
           },
           {
             id: 3,
-            title: "Database deployment question",
+            title: "🚀 Database Deployment Help",
             timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
             messageCount: 8,
             lastMessage: "I'll help you with the deployment process"
@@ -400,6 +524,23 @@ const Sidebar = ({
   }
 
   const handleConversationClick = (conversation) => {
+    console.log('👆 Conversation clicked:', {
+      id: conversation.id,
+      title: conversation.title,
+      messageCount: conversation.messages?.length || 0,
+      firstMessage: conversation.messages?.[0]?.content?.substring(0, 30) + '...',
+      lastMessage: conversation.messages?.[conversation.messages.length - 1]?.content?.substring(0, 30) + '...'
+    });
+    
+    // Debug: Log each message in the clicked conversation
+    conversation.messages?.forEach((msg, index) => {
+      console.log(`📋 Conv message ${index + 1}:`, {
+        type: msg.type,
+        content: msg.content?.substring(0, 40) + '...',
+        timestamp: msg.timestamp
+      });
+    });
+    
     setSelectedConversation(conversation.id)
     onLoadConversation(conversation)
   }

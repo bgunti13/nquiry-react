@@ -40,7 +40,7 @@ class ZendeskTool:
             True if connection successful, False otherwise
         """
         try:
-            response = requests.get(f'{self.base_url}/users/me.json', auth=self.auth)
+            response = requests.get(f'{self.base_url}/users/me.json', auth=self.auth, timeout=10)
             return response.status_code == 200
         except Exception as e:
             print(f"❌ Zendesk connection failed: {e}")
@@ -88,7 +88,8 @@ class ZendeskTool:
             response = requests.get(
                 f'{self.base_url}/search.json',
                 params=params,
-                auth=self.auth
+                auth=self.auth,
+                timeout=20  # 20 second timeout for search
             )
             
             if response.status_code == 200:
@@ -163,11 +164,13 @@ class ZendeskTool:
             
             print(f"🎫 Creating Zendesk ticket: {payload['ticket']['subject']}")
             
+            # Add timeout to prevent long waits
             response = requests.post(
                 f'{self.base_url}/tickets.json',
                 json=payload,
                 auth=self.auth,
-                headers={'Content-Type': 'application/json'}
+                headers={'Content-Type': 'application/json'},
+                timeout=30  # 30 second timeout
             )
             
             if response.status_code == 201:

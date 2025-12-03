@@ -16,7 +16,7 @@ class ChatHistoryManager:
         # Return as naive datetime (without timezone info) so frontend treats it correctly
         return ist_time
 
-    def add_message(self, user_id, role, message, session_id=None):
+    def add_message(self, user_id, role, message, session_id=None, images=None):
         """Add a message to the user's chat history."""
         message_data = {
             "role": role,
@@ -27,6 +27,29 @@ class ChatHistoryManager:
         # Add session_id if provided (for conversation grouping)
         if session_id:
             message_data["session_id"] = session_id
+            
+        # Add images if provided (for user messages with uploaded images)
+        if images and len(images) > 0:
+            # Store essential image data for frontend display
+            image_data = []
+            for img in images:
+                # Handle both dict and ImageData object formats
+                if hasattr(img, 'base64'):  # ImageData object
+                    image_data.append({
+                        "name": img.name,
+                        "type": img.type,
+                        "base64": img.base64,
+                        "preview": img.base64  # Use base64 as preview
+                    })
+                else:  # Dict format (fallback)
+                    image_data.append({
+                        "name": img.get("name", "image.png"),
+                        "type": img.get("type", "image/png"),
+                        "base64": img.get("base64", ""),
+                        "preview": img.get("preview", img.get("base64", ""))
+                    })
+            message_data["images"] = image_data
+            print(f"💾 Saving message with {len(image_data)} images")
             
         self.collection.update_one(
             {"user_id": user_id},

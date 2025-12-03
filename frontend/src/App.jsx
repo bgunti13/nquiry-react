@@ -67,6 +67,7 @@ const App = () => {
   const [showIntelligentQuestions, setShowIntelligentQuestions] = useState(false)
   const [targetedQuestions, setTargetedQuestions] = useState([])
   const [partialTicketData, setPartialTicketData] = useState({})
+  const [smartTicketConfig, setSmartTicketConfig] = useState(null)
   
   // Chat history state
   const [chatHistory, setChatHistory] = useState([])
@@ -242,6 +243,19 @@ const App = () => {
       // Store the full organization data from the backend
       setCurrentUser(response.organization_data || { email: email })
       
+      // Clear any existing conversation state when switching users
+      setMessages([])
+      setConversationEnded(false)
+      setShowTicketForm(false)
+      setTicketQuery('')
+      setIsEscalation(false)
+      setError(null)
+      setShowIntelligentQuestions(false)
+      setTargetedQuestions([])
+      setPartialTicketData({})
+      setDownloadableTicket(null)
+      setShowDownloads(false)
+      
       // Generate new session ID for this login session
       const newSessionId = generateSessionId()
       setSessionId(newSessionId)
@@ -264,6 +278,19 @@ const App = () => {
       // For now, still allow local initialization even if backend fails
       setIsInitialized(true)
       setCurrentUser({ email: email })
+      
+      // Clear any existing conversation state when switching users (fallback case)
+      setMessages([])
+      setConversationEnded(false)
+      setShowTicketForm(false)
+      setTicketQuery('')
+      setIsEscalation(false)
+      setError(null)
+      setShowIntelligentQuestions(false)
+      setTargetedQuestions([])
+      setPartialTicketData({})
+      setDownloadableTicket(null)
+      setShowDownloads(false)
       
       // Generate session ID even on fallback
       const newSessionId = generateSessionId()
@@ -440,37 +467,46 @@ const App = () => {
             // Just setup downloads
             // Generate comprehensive ticket content with all fields
             const generateTicketContent = (ticketData) => {
-              let content = `AUTOMATIC AI TICKET
+              const isZendeskTicket = ticketData.platform === 'Zendesk'
+              
+              let content = `${isZendeskTicket ? 'ZENDESK SUPPORT TICKET' : 'AUTOMATIC AI TICKET'}
 ===================
 
 Ticket ID: ${ticketData.ticket_id}
-Category: ${ticketData.category}
-Customer: ${ticketData.customer}
+${isZendeskTicket ? 'Platform: Zendesk Support' : `Category: ${ticketData.category}`}
+Customer: ${ticketData.customer || ticketData.requester}
 Priority: ${ticketData.priority}
-Description: ${ticketData.description}
-
-AUTO-POPULATED FIELDS FROM ${ticketData.category} CATEGORY:
+Description: ${ticketData.description || ticketData.subject}
 `
               
-              // Add all additional fields from the ticket data
-              Object.entries(ticketData).forEach(([key, value]) => {
-                if (!['ticket_id', 'category', 'customer', 'priority', 'description'].includes(key) && value) {
-                  // Format field name (convert snake_case to Title Case)
-                  const fieldName = key.split('_').map(word => 
-                    word.charAt(0).toUpperCase() + word.slice(1)
-                  ).join(' ')
-                  content += `• ${fieldName}: ${value}\n`
-                }
-              })
+              if (!isZendeskTicket) {
+                content += `
+AUTO-POPULATED FIELDS FROM ${ticketData.category} CATEGORY:
+`
+                
+                // Add all additional fields from the ticket data
+                Object.entries(ticketData).forEach(([key, value]) => {
+                  if (!['ticket_id', 'category', 'customer', 'priority', 'description', 'platform'].includes(key) && value) {
+                    // Format field name (convert snake_case to Title Case)
+                    const fieldName = key.split('_').map(word => 
+                      word.charAt(0).toUpperCase() + word.slice(1)
+                    ).join(' ')
+                    content += `• ${fieldName}: ${value}\n`
+                  }
+                })
+                
+                content += `\nThis ticket was created automatically using AI analysis.`
+              } else {
+                content += `\n${ticketData.url ? `Ticket URL: ${ticketData.url}` : ''}\n\nThis Zendesk support ticket was created through the nQuiry AI assistant.`
+              }
               
-              content += `\nThis ticket was created automatically using AI analysis.`
               return content
             }
             
             setDownloadableTicket({
               ticket_data: data.ticket_data,
               downloadable_content: generateTicketContent(data.ticket_data),
-              filename: `auto_ticket_${data.ticket_data.category}_${Date.now()}.txt`
+              filename: `${data.ticket_data.platform === 'Zendesk' ? 'zendesk_ticket' : `auto_ticket_${data.ticket_data.category}`}_${Date.now()}.txt`
             })
             setShowDownloads(true)
             setSidebarRefreshTrigger(prev => prev + 1)
@@ -484,6 +520,16 @@ AUTO-POPULATED FIELDS FROM ${ticketData.category} CATEGORY:
             setShowIntelligentQuestions(true)
             setTargetedQuestions(data.questions)
             setPartialTicketData(data.ticket_data)
+            return // Skip other form-related logic
+          }
+
+          // Handle smart ticket questions with pre-filled values from AI context
+          if (data.show_ticket_form && data.ticket_form_config && data.ticket_form_config.smart_questions) {
+            console.log('🧠 Backend provided smart ticket questions with AI context')
+            setShowTicketForm(true)
+            setTicketQuery(message)
+            setSmartTicketConfig(data.ticket_form_config)
+            setIsEscalation(false)
             return // Skip other form-related logic
           }
 
@@ -524,17 +570,20 @@ AUTO-POPULATED FIELDS FROM ${ticketData.category} CATEGORY:
   const handleTicketCreated = (response) => {
     // Extract ticket data from the API response
     const ticketData = response.ticket_data || response;
+    const isZendeskTicket = ticketData.platform === 'Zendesk'
     
     // Add ticket creation confirmation to chat
     const confirmationMessage = {
       id: Date.now(),
       type: MESSAGE_TYPES.BOT,
-      content: `🎫 **Ticket Created Successfully!**
+      content: `🎫 **${isZendeskTicket ? 'Zendesk Support Ticket' : 'JIRA Ticket'} Created Successfully!**
 
 **Ticket ID:** ${ticketData.ticket_id || 'N/A'}
-**JIRA Ticket:** ${ticketData.jira_ticket_id || 'N/A'}
-**Category:** ${ticketData.category || 'N/A'}
-**Customer:** ${ticketData.customer || 'N/A'}
+${isZendeskTicket 
+  ? `**Platform:** Zendesk Support\n**Ticket URL:** ${ticketData.url || 'N/A'}` 
+  : `**JIRA Ticket:** ${ticketData.jira_ticket_id || 'N/A'}\n**Category:** ${ticketData.category || 'N/A'}`
+}
+**Customer:** ${ticketData.customer || ticketData.requester || 'N/A'}
 
 ✅ Your support ticket has been created and will be processed by our support team.
 📄 Complete ticket details have been generated.
@@ -551,6 +600,7 @@ Use the download buttons that will appear below.`,
     setShowTicketForm(false)
     setTicketQuery('')
     setIsEscalation(false)
+    setSmartTicketConfig(null)
     setSidebarRefreshTrigger(prev => prev + 1)
     
     // Store download data
@@ -562,6 +612,7 @@ Use the download buttons that will appear below.`,
     setShowTicketForm(false)
     setTicketQuery('')
     setIsEscalation(false)
+    setSmartTicketConfig(null)
   }
 
   const handleIntelligentQuestionsCompleted = (response) => {
@@ -712,20 +763,63 @@ Use the download buttons that will appear below.`,
   }
 
   const handleLoadConversation = (conversation) => {
-    // Remove any potential duplicates by checking message content and timestamp
-    const uniqueMessages = []
-    const seenMessages = new Set()
+    console.log('🔄 Loading conversation data:', conversation)
+    console.log('🔍 Conversation has', conversation.messages?.length || 0, 'messages')
     
-    conversation.messages?.forEach(msg => {
-      // Create a unique key based on content and type (ignore exact timestamp due to small differences)
-      const key = `${msg.type}-${msg.content.substring(0, 100)}`
+    // Debug: Check message types before processing
+    const userMsgCount = conversation.messages?.filter(msg => msg.type === 'user').length || 0
+    const botMsgCount = conversation.messages?.filter(msg => msg.type === 'bot' || msg.type === 'assistant').length || 0
+    console.log(`📊 Message distribution: ${userMsgCount} user messages, ${botMsgCount} bot/assistant messages`)
+    
+    // Log each message being loaded
+    conversation.messages?.forEach((msg, index) => {
+      console.log(`📨 Message ${index + 1}:`, {
+        type: msg.type,
+        role: msg.role,
+        content: msg.content?.substring(0, 50) + (msg.content?.length > 50 ? '...' : ''),
+        timestamp: msg.timestamp,
+        hasImages: !!(msg.images && msg.images.length > 0)
+      })
+    })
+    
+    // Remove consecutive duplicate messages (same type and content)
+    const uniqueMessages = []
+    
+    conversation.messages?.forEach((msg, index) => {
+      // Check if this is a duplicate of the previous message
+      const previousMsg = uniqueMessages[uniqueMessages.length - 1]
+      const isDuplicate = previousMsg && 
+        previousMsg.type === msg.type &&
+        previousMsg.content === msg.content
       
-      if (!seenMessages.has(key)) {
-        seenMessages.add(key)
-        uniqueMessages.push(msg)
+      if (isDuplicate) {
+        console.log('🗑️ Removing duplicate message:', {
+          type: msg.type,
+          content: msg.content?.substring(0, 30) + '...',
+          timestamp: msg.timestamp
+        })
+      } else {
+        console.log('✅ Keeping message:', {
+          type: msg.type,
+          content: msg.content?.substring(0, 30) + '...',
+          timestamp: msg.timestamp
+        })
+        
+        // Ensure images are properly preserved when loading conversation
+        const processedMessage = {
+          ...msg,
+          images: msg.images || [] // Ensure images field exists even if empty
+        }
+        // Debug: Log if message has images
+        if (msg.images && msg.images.length > 0) {
+          console.log('📸 Loading message with images:', msg.images.length, 'images', msg.images)
+        }
+        
+        uniqueMessages.push(processedMessage)
       }
     })
     
+    console.log('🔄 Loading conversation with', uniqueMessages.length, 'messages')
     setMessages(uniqueMessages)
     setConversationEnded(false)
     setShowTicketForm(false)
@@ -778,6 +872,7 @@ Use the download buttons that will appear below.`,
             isEscalation={isEscalation}
             customerEmail={customerEmail}
             chatHistory={messages}
+            smartConfig={smartTicketConfig}
             onTicketCreated={handleTicketCreated}
             onCancel={handleTicketCancelled}
           />

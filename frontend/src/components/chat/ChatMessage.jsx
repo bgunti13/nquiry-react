@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Copy, CheckCircle, User, Bot, Expand } from 'lucide-react'
 import FeedbackButtons from '../feedback/FeedbackButtons'
 import AudioFeedback from '../audio/AudioFeedback'
@@ -15,6 +15,13 @@ const ChatMessage = ({
   const { content, timestamp, images } = message
   const [copied, setCopied] = useState(false)
   const [expandedImage, setExpandedImage] = useState(null)
+
+  // Debug: Log when component receives images
+  useEffect(() => {
+    if (images && images.length > 0) {
+      console.log('🖼️ ChatMessage received images:', images.length, images)
+    }
+  }, [images])
 
   const formatTimestamp = (timestamp) => {
     if (!timestamp) return ''
@@ -180,15 +187,11 @@ const ChatMessage = ({
               </div>
             )}
 
-            {/* Status indicator and feedback for bot messages */}
+            {/* Feedback for bot messages */}
             {isBot && (
               <>
                 <div className="mt-2 pt-2 border-t border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
-                      <span className="text-xs text-gray-500">Response generated</span>
-                    </div>
+                  <div className="flex items-center justify-end">
                     <FeedbackButtons
                       messageId={message.id}
                       messageContent={content}

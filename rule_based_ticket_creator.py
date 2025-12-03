@@ -366,7 +366,6 @@ class RuleBasedTicketCreator(TicketCreator):
 {'=' * len(header)}
 
 {subheader}
-Creation Method: {creation_method.replace('_', ' ').title()}
 Analysis Completeness Score: {ticket_data.get('completeness_score', 0.0):.1%}
 
 Ticket Id: {ticket_data.get('ticket_id', 'N/A')}

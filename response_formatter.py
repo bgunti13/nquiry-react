@@ -119,9 +119,14 @@ class ResponseFormatter:
         
         print(f"🔍 _prepare_context: Processing {len(results)} results for source {source}")
         
-        for i, (doc, score) in enumerate(results[:5], 1):  # Limit to top 5 results
+        # For performance, limit processing time by truncating large content early
+        for i, (doc, score) in enumerate(results[:4], 1):  # Reduced from 5 to 4 for performance
             title = doc.get('title', 'Untitled')
             content = doc.get('content', doc.get('summary', doc.get('description', '')))
+            
+            # Truncate content early for performance - max 800 chars per result
+            if content and len(content) > 800:
+                content = content[:800] + "..."
             
             print(f"📄 Result {i}: Title='{title}', Content length={len(content) if content else 0}")
             print(f"📝 Content preview: {content[:100]}..." if content else "❌ No content found")
@@ -138,31 +143,59 @@ class ResponseFormatter:
                 # Add resolution steps if available
                 if resolution:
                     jira_content += f"\n\nRESOLUTION: {resolution}"
-                
-                # Add recent comments that might contain solutions
+
+                # Add recent comments that might contain solutions (optimized for performance)
                 if comments:
                     jira_content += "\n\nRECENT COMMENTS WITH SOLUTIONS:"
                     relevant_comments_found = 0
-                    for comment in comments[-5:]:  # Last 5 comments
+                    # Process only last 3 comments for performance
+                    for comment in comments[-3:]:  # Reduced from 5 to 3 for performance
                         comment_body = comment.get('body', '')
-                        # More inclusive keyword list for solution-related content
-                        solution_keywords = ['solution', 'resolved', 'fix', 'steps', 'workaround', 'issue', 'problem', 
-                                           'troubleshoot', 'error', 'sync', 'account', 'resolve', 'cause', 'root',
-                                           'investigation', 'found', 'discovered', 'update', 'change', 'config']
+                        # Truncate comment body early
+                        if len(comment_body) > 200:
+                            comment_body = comment_body[:200] + "..."
+                            
+                        # Simplified keyword list for performance
+                        solution_keywords = ['solution', 'resolved', 'fix', 'steps', 'workaround', 'error']
                         
                         if any(keyword in comment_body.lower() for keyword in solution_keywords) or len(comment_body) > 50:
-                            jira_content += f"\n- {comment.get('author', 'User')}: {comment_body[:300]}..."
+                            jira_content += f"\n- {comment.get('author', 'User')}: {comment_body}"
                             relevant_comments_found += 1
                     
-                    # If no "relevant" comments found, include all recent comments anyway
+                    # If no "relevant" comments found, include fewer recent comments for performance
                     if relevant_comments_found == 0:
-                        jira_content += "\n\nALL RECENT COMMENTS:"
-                        for comment in comments[-3:]:  # Last 3 comments
+                        jira_content += "\n\nRECENT COMMENTS:"
+                        for comment in comments[-2:]:  # Reduced from 3 to 2
                             comment_body = comment.get('body', '')
                             if comment_body:
-                                jira_content += f"\n- {comment.get('author', 'User')}: {comment_body[:300]}..."
+                                # Truncate to 200 chars for performance
+                                if len(comment_body) > 200:
+                                    comment_body = comment_body[:200] + "..."
+                                jira_content += f"\n- {comment.get('author', 'User')}: {comment_body}"
                 
                 content = jira_content
+            elif source in ['ZENDESK', 'ZENDESK_AZURE', 'MULTI'] and doc.get('platform') == 'Zendesk':
+                # For Zendesk tickets, format differently than JIRA
+                description = doc.get('description', '')
+                status = doc.get('status', '')
+                comments = doc.get('comments', [])
+                
+                zendesk_content = f"DESCRIPTION: {description[:400]}..." if len(description) > 400 else f"DESCRIPTION: {description}"
+                
+                if status:
+                    zendesk_content += f"\n\nSTATUS: {status}"
+                
+                # Add recent comments for Zendesk tickets
+                if comments:
+                    zendesk_content += "\n\nRECENT UPDATES:"
+                    for comment in comments[-2:]:  # Last 2 comments
+                        comment_body = comment.get('body', '')
+                        if comment_body:
+                            if len(comment_body) > 200:
+                                comment_body = comment_body[:200] + "..."
+                            zendesk_content += f"\n- {comment.get('author', 'Agent')}: {comment_body}"
+                
+                content = zendesk_content
             elif source == 'MINDTOUCH':
                 # For MindTouch LLM responses, preserve full content as they contain comprehensive solutions
                 # Don't truncate MindTouch content since it's already curated LLM responses
@@ -181,6 +214,11 @@ class ResponseFormatter:
                 context_part += f"Priority: {doc.get('priority', 'N/A')}\n"
                 if doc.get('resolution_date'):
                     context_part += f"Resolution Date: {doc.get('resolution_date', 'N/A')}\n"
+            elif source in ['ZENDESK', 'ZENDESK_AZURE', 'MULTI'] and doc.get('platform') == 'Zendesk':
+                context_part += f"Zendesk Ticket: {doc.get('key', doc.get('id', 'N/A'))}\n"
+                context_part += f"Status: {doc.get('status', 'N/A')}\n"
+                context_part += f"Priority: {doc.get('priority', 'N/A')}\n"
+                context_part += f"Created: {doc.get('created_at', 'N/A')}\n"
             elif source == 'CONFLUENCE':
                 context_part += f"Page ID: {doc.get('id', 'N/A')}\n"
                 context_part += f"Space: {doc.get('space', 'N/A')}\n"

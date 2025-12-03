@@ -41,6 +41,10 @@ const ChatInputFixed = ({
       setMessage('')
       setSelectedImages([])
       setShowExamples(false)
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
     }
   }
 
@@ -76,11 +80,19 @@ const ChatInputFixed = ({
       })
     ).then(imageData => {
       setSelectedImages(prev => [...prev, ...imageData].slice(0, 3)) // Max 3 images
+      // Reset file input to allow selecting the same files again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
     })
   }
 
   const removeImage = (index) => {
     setSelectedImages(prev => prev.filter((_, i) => i !== index))
+    // Reset file input when removing images
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
   }
 
   const openFileDialog = () => {

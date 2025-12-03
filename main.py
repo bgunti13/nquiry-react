@@ -310,12 +310,17 @@ class IntelligentQueryProcessor:
             query = state.get('query', '')
             print(f"📄 Searching MindTouch via REST API...")
             print(f"🎭 Using role: {self.customer_info.get('role')} for {self.customer_info.get('organization')}")
+            
+            # Add performance tracking
+            import time
+            mindtouch_start = time.time()
 
             # Get MindTouch documents - this returns formatted LLM response
             documents = self.mindtouch_tool.search_pages(query, limit=20)
             
             if documents:
-                print(f"📊 MindTouch search completed: {len(documents)} pages")
+                mindtouch_elapsed = time.time() - mindtouch_start
+                print(f"📊 MindTouch search completed: {len(documents)} pages in {mindtouch_elapsed:.2f}s")
                 
                 # Check if we have existing JIRA results to combine with
                 existing_results = state.get('search_results', [])
@@ -327,8 +332,9 @@ class IntelligentQueryProcessor:
                 mindtouch_results = list(zip(documents, mindtouch_scores))
                 
                 if existing_results:
-                    # Combine JIRA and MindTouch results
-                    print(f"🔗 Combining {len(existing_results)} JIRA results with {len(mindtouch_results)} MindTouch results")
+                    # Combine existing results with MindTouch results
+                    source_name = "Zendesk/Azure Blob" if self.is_support_domain else "JIRA"
+                    print(f"🔗 Combining {len(existing_results)} {source_name} results with {len(mindtouch_results)} MindTouch results")
                     state['search_results'] = existing_results + mindtouch_results
                     state['similarity_scores'] = existing_scores + mindtouch_scores
                     state['last_search_source'] = 'MULTI'  # Indicate mixed sources
@@ -340,14 +346,16 @@ class IntelligentQueryProcessor:
                 
                 print(f"✅ Combined results ready for formatting")
             else:
-                # No MindTouch results, but check if we have existing JIRA results
+                # No MindTouch results, but check if we have existing results
                 existing_results = state.get('search_results', [])
                 if existing_results:
-                    print("⚠️  No MindTouch pages found, but JIRA results available")
-                    state['last_search_source'] = 'JIRA'  # Keep JIRA as source
-                    print(f"✅ JIRA results ready for formatting")
+                    source_name = "Zendesk/Azure Blob" if self.is_support_domain else "JIRA"
+                    print(f"⚠️  No MindTouch pages found, but {source_name} results available")
+                    state['last_search_source'] = 'ZENDESK_AZURE' if self.is_support_domain else 'JIRA'
+                    print(f"✅ {source_name} results ready for formatting")
                 else:
-                    print("⚠️  No results found in either JIRA or MindTouch")
+                    search_sources = "Zendesk, Azure Blob, or MindTouch" if self.is_support_domain else "JIRA or MindTouch"
+                    print(f"⚠️  No results found in {search_sources}")
                     state['search_results'] = []
                     state['similarity_scores'] = []
 
@@ -381,7 +389,7 @@ class IntelligentQueryProcessor:
             print(f"📝 Query: '{query}'")
 
             # Search ALL tickets using Zendesk tool (not organization-specific)
-            tickets = self.zendesk_tool.search_tickets(query, organization=None, limit=50)
+            tickets = self.zendesk_tool.search_tickets(query, organization=None, limit=15)
 
             if tickets:
                 print(f"📊 Found {len(tickets)} Zendesk tickets total")
@@ -655,11 +663,18 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                 ]
             }
             
+            # Add timeout handling for Bedrock calls
+            import time
+            start_time = time.time()
+            
             response = self.response_formatter.bedrock_client.invoke_model(
                 modelId=self.response_formatter.model_id,
                 body=json.dumps(body),
                 contentType='application/json'
             )
+            
+            elapsed_time = time.time() - start_time
+            print(f"⏱️  Bedrock evaluation took {elapsed_time:.2f} seconds")
             
             response_body = json.loads(response['body'].read())
             
@@ -691,8 +706,12 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
 
             # Handle case where no search results were found
             if not search_results:
-                print("⚠️  No search results found in JIRA or MindTouch")
-                state['formatted_response'] = f"I searched through JIRA tickets and documentation but couldn't find specific information related to your query: **{query}**\n\n❓ Since I wasn't able to find relevant information, would you like me to create a support ticket so our technical team can assist you directly?"
+                if self.is_support_domain:
+                    print("⚠️  No search results found in Zendesk or Azure Blob")
+                    state['formatted_response'] = f"I searched through Zendesk tickets and documentation but couldn't find specific information related to your query: **{query}**\n\n❓ Since I wasn't able to find relevant information, would you like me to create a support ticket so our technical team can assist you directly?"
+                else:
+                    print("⚠️  No search results found in JIRA or MindTouch")
+                    state['formatted_response'] = f"I searched through JIRA tickets and documentation but couldn't find specific information related to your query: **{query}**\n\n❓ Since I wasn't able to find relevant information, would you like me to create a support ticket so our technical team can assist you directly?"
                 state['ticket_creation_suggested'] = True
                 return state
 
@@ -717,17 +736,31 @@ Your response should be a single word: either SUFFICIENT or INSUFFICIENT.
                 
                 # Always offer ticket creation for all responses
                 source = state.get('last_search_source', state.get('classified_source', ''))
-                if source == 'JIRA':
-                    print("📋 JIRA response provided - offering ticket creation option")
-                    state['formatted_response'] = formatted_response + "\n\n❓ This response is based on JIRA ticket data. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
-                elif source == 'MULTI':
-                    print("📋 Combined JIRA + MindTouch response provided - offering ticket creation option")
-                    state['formatted_response'] = formatted_response + "\n\n❓ This response combines information from JIRA tickets and documentation. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
-                elif source == 'MINDTOUCH':
-                    print("📋 MindTouch response provided - offering ticket creation option")
-                    state['formatted_response'] = formatted_response + "\n\n❓ This response is based on documentation. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
+                
+                if self.is_support_domain:
+                    # Support domain responses (Zendesk + Azure Blob)
+                    if source == 'MULTI':
+                        print("📋 Combined Zendesk + Azure Blob response provided - offering ticket creation option")
+                        state['formatted_response'] = formatted_response + "\n\n❓ This response combines information from Zendesk tickets and documentation. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
+                    elif source == 'ZENDESK':
+                        print("📋 Zendesk response provided - offering ticket creation option")
+                        state['formatted_response'] = formatted_response + "\n\n❓ This response is based on Zendesk ticket data. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
+                    else:
+                        print("📋 Support documentation response provided - offering ticket creation option")
+                        state['formatted_response'] = formatted_response + "\n\n❓ This response is based on support documentation. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
                 else:
-                    print("📋 General response provided - offering ticket creation option")
+                    # Regular domain responses (JIRA + MindTouch)
+                    if source == 'JIRA':
+                        print("📋 JIRA response provided - offering ticket creation option")
+                        state['formatted_response'] = formatted_response + "\n\n❓ This response is based on JIRA ticket data. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
+                    elif source == 'MULTI':
+                        print("📋 Combined JIRA + MindTouch response provided - offering ticket creation option")
+                        state['formatted_response'] = formatted_response + "\n\n❓ This response combines information from JIRA tickets and documentation. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
+                    elif source == 'MINDTOUCH':
+                        print("📋 MindTouch response provided - offering ticket creation option")
+                        state['formatted_response'] = formatted_response + "\n\n❓ This response is based on documentation. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
+                    else:
+                        print("📋 General response provided - offering ticket creation option")
                     state['formatted_response'] = formatted_response + "\n\n❓ If you are not satisfied with this response, would you like me to create a support ticket for further assistance?"
                 
                 # Always suggest ticket creation

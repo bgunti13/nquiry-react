@@ -107,7 +107,8 @@ export const chatService = {
   getChatHistory: async (userId = 'demo_user') => {
     try {
       const response = await api.get(`/chat/history/${userId}`)
-      return response.data
+      // Return just the history array, not the wrapper object
+      return response.data.history || []
     } catch (error) {
       console.error('Error getting chat history:', error)
       throw error

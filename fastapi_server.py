@@ -12,6 +12,7 @@ import json
 import os
 import time
 import random
+import boto3
 
 # Import your existing intelligent system
 from main import IntelligentQueryProcessor
@@ -411,6 +412,8 @@ def create_intelligent_ticket_simple(query: str, customer_email: str) -> Dict:
         
         if is_support_domain:
             # Create real Zendesk ticket for support domains
+            # Note: In this context we don't have AI response or conversation context
+            # but the function will use fallback description
             return create_zendesk_ticket_intelligent(query, customer_email)
         else:
             # Create simulated JIRA ticket for regular domains
@@ -423,20 +426,97 @@ def create_intelligent_ticket_simple(query: str, customer_email: str) -> Dict:
             'message': f'Error creating ticket: {str(e)}'
         }
 
-def create_zendesk_ticket_intelligent(query: str, customer_email: str) -> Dict:
-    """Create a real Zendesk ticket for support domains"""
+def analyze_support_request_with_ai(query: str, ai_response: str = None, conversation_context: list = None, customer_email: str = "") -> str:
+    """
+    Use AI to analyze a support request and generate an enhanced description for Zendesk ticket
+    """
     try:
-        from tools.zendesk_tool import ZendeskTool
+        import boto3
+        import json
         from datetime import datetime
         
-        print(f"🎫 Creating Zendesk ticket for: {query}")
+        # Initialize Bedrock client
+        bedrock_runtime = boto3.client(
+            service_name='bedrock-runtime',
+            region_name='us-east-1'
+        )
         
-        zendesk_tool = ZendeskTool()
+        # Prepare conversation context
+        conversation_summary = ""
+        if conversation_context and len(conversation_context) > 0:
+            # Get recent messages for context
+            recent_messages = conversation_context[-10:] if len(conversation_context) > 10 else conversation_context
+            conversation_summary = "\n\n**Recent Conversation Context:**\n"
+            for i, msg in enumerate(recent_messages, 1):
+                if msg.get('role') == 'user':
+                    conversation_summary += f"User {i}: {msg.get('message', '')}\n"
+                elif msg.get('role') == 'assistant':
+                    conversation_summary += f"Assistant {i}: {msg.get('message', '')[:200]}...\n"
         
-        # Prepare ticket data
-        ticket_data = {
-            "subject": f"Support Request: {query[:100]}",
-            "description": f"""**Automated Support Request**
+        # Include AI response if available
+        ai_analysis = ""
+        if ai_response and len(ai_response) > 50:
+            ai_analysis = f"\n\n**AI Assistant's Analysis:**\n{ai_response[:500]}..."
+        
+        # Create prompt for enhanced description
+        prompt = f"""You are a technical support analyst. Analyze this support request and create a professional ticket description.
+
+**Original User Query:** {query}
+
+**Customer:** {customer_email}
+{conversation_summary}
+{ai_analysis}
+
+Please create a detailed technical description that includes:
+1. A clear summary of the user's issue or request
+2. Technical context from the conversation (if any)
+3. Urgency/priority assessment
+4. Recommended action items for the support team
+5. Any relevant technical details mentioned
+
+Format it as a professional support ticket description that will help the support team understand and resolve the issue quickly.
+
+Provide only the enhanced description in a format suitable for a support ticket."""
+
+        # Call Bedrock
+        body = json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 1000,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.1
+        })
+        
+        response = bedrock_runtime.invoke_model(
+            body=body,
+            modelId="anthropic.claude-3-5-sonnet-20240620-v1:0"
+        )
+        
+        response_body = json.loads(response['body'].read())
+        enhanced_description = response_body['content'][0]['text'].strip()
+        
+        # Add header and footer
+        final_description = f"""**AI-Enhanced Support Request**
+
+{enhanced_description}
+
+---
+**Source:** nQuiry AI Assistant
+**Created:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
+**Requester:** {customer_email}
+**Original Query:** {query}
+"""
+        
+        return final_description
+        
+    except Exception as e:
+        print(f"⚠️ Error in AI analysis, using fallback description: {e}")
+        # Fallback to basic description
+        return f"""**Automated Support Request**
 
 **Issue Description:**
 {query}
@@ -447,7 +527,25 @@ def create_zendesk_ticket_intelligent(query: str, customer_email: str) -> Dict:
 
 **Request Details:**
 The user has submitted this support request through the nQuiry AI assistant. Please review and provide appropriate assistance.
-""",
+"""
+
+def create_zendesk_ticket_intelligent(query: str, customer_email: str, ai_response: str = None, conversation_context: list = None) -> Dict:
+    """Create a real Zendesk ticket for support domains with AI analysis"""
+    try:
+        from tools.zendesk_tool import ZendeskTool
+        from datetime import datetime
+        
+        print(f"🎫 Creating Zendesk ticket for: {query}")
+        
+        # Generate AI analysis of the query and conversation for better ticket description
+        enhanced_description = analyze_support_request_with_ai(query, ai_response, conversation_context, customer_email)
+        
+        zendesk_tool = ZendeskTool()
+        
+        # Prepare ticket data with AI analysis
+        ticket_data = {
+            "subject": f"Support Request: {query[:100]}",
+            "description": enhanced_description,
             "requester_email": customer_email,
             "priority": "normal",
             "type": "question",
@@ -456,11 +554,12 @@ The user has submitted this support request through the nQuiry AI assistant. Ple
         
         # Create ticket in Zendesk
         result = zendesk_tool.create_ticket(ticket_data)
+        print(f"🔍 DEBUG: Zendesk result = {result}")
         
-        if result.get('success'):
-            ticket_info = result['ticket']
-            ticket_id = ticket_info.get('id')
-            ticket_url = ticket_info.get('url', '')
+        if result.get('status') == 'success':
+            # Zendesk tool returns status='success' with direct fields
+            ticket_id = result.get('ticket_id')
+            ticket_url = result.get('ticket_url', '')
             
             return {
                 'status': 'created',
@@ -477,16 +576,23 @@ The user has submitted this support request through the nQuiry AI assistant. Ple
 
 Our support team will review your request and respond soon. You can track progress using the ticket ID or URL above.""",
                 'ticket_data': {
+                    'ticket_id': ticket_id,  # Frontend expects this field
+                    'platform': 'Zendesk',   # Indicate this is a Zendesk ticket
+                    'category': 'Support',   # Use 'Support' instead of JIRA categories
                     'id': ticket_id,
                     'url': ticket_url,
                     'subject': ticket_data['subject'],
                     'status': 'open',
+                    'priority': 'normal',
+                    'customer': customer_email,
+                    'description': ticket_data['description'],
                     'created': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     'requester': customer_email
                 }
             }
         else:
-            error_msg = result.get('error', 'Unknown error')
+            # Handle error case - Zendesk tool returns status != 'success'
+            error_msg = result.get('message', result.get('error', 'Unknown error'))
             return {
                 'status': 'error',
                 'message': f'❌ Failed to create Zendesk ticket: {error_msg}'
@@ -892,7 +998,7 @@ async def send_message_stream(message: StreamingChatMessage):
             # Store message in history
             yield await send_status_update("💾 Saving your message...", "saving", "💾")
             if chat_history_manager:
-                chat_history_manager.add_message(user_id, "user", message.message, message.session_id)
+                chat_history_manager.add_message(user_id, "user", message.message, message.session_id, images=message.images)
                 # Get history from MongoDB for context
                 history = chat_history_manager.get_history(user_id)
             else:
@@ -974,7 +1080,8 @@ async def send_message_stream(message: StreamingChatMessage):
                     # Analyze all images with user query
                     analysis_result = image_analyzer.analyze_images_with_query(
                         images=images_for_analysis,
-                        user_query=message.message if message.message.strip() else "Please analyze these images and describe what you see, focusing on any technical issues, error messages, or interface elements."
+                        user_query=message.message if message.message.strip() else "Please analyze these images and describe what you see, focusing on any technical issues, error messages, or interface elements.",
+                        fast_mode=True  # Use fast mode for quicker analysis
                     )
                     
                     if analysis_result.get('success'):
@@ -986,6 +1093,109 @@ async def send_message_stream(message: StreamingChatMessage):
                             image_context += f"\n\nExtracted Text:\n{extracted_text}"
                         
                         print(f"✅ Images analyzed successfully")
+                        
+                        # 🚀 CHATGPT-STYLE FAST PATH: If image analysis provides clear technical solution, respond directly
+                        analysis_text = analysis_result.get('analysis', '').lower()
+                        user_query_lower = message.message.lower() if message.message else ''
+                        
+                        # Check if this is a clear technical error that can be answered directly
+                        has_clear_solution = any([
+                            'error code' in analysis_text and 'solution' in analysis_text,
+                            'fix' in analysis_text and ('steps' in analysis_text or 'format' in analysis_text),
+                            'unable to convert' in analysis_text and 'date' in analysis_text,
+                            'failed to load' in analysis_text and 'correction' in analysis_text,
+                            len(extracted_text) > 50 and any(term in extracted_text.lower() for term in ['error', 'failed', 'unable', 'rejected'])
+                        ])
+                        
+                        # Simple query suggests user wants direct help
+                        is_simple_query = len(user_query_lower) < 50 or any([
+                            user_query_lower in ['', 'help', 'error', 'fix', 'what is this', 'analyze'],
+                            'error message' in user_query_lower,
+                            'unable to convert' in user_query_lower
+                        ])
+                        
+                        if has_clear_solution and is_simple_query:
+                            print(f"🚀 FAST PATH: Image contains clear technical solution - responding directly")
+                            
+                            # Generate direct response using just the image analysis
+                            yield await send_status_update("🧠 Generating direct solution...", "generating", "🧠")
+                            
+                            # Create a focused prompt for direct solution
+                            direct_prompt = f"""Based on the error message in the uploaded image, provide a clear, actionable solution.
+
+User Query: {message.message if message.message else 'Please help with this error'}
+
+Image Analysis: {analysis_result.get('analysis', '')[:500]}...
+
+Extracted Text: {extracted_text[:300] if extracted_text else 'None'}
+
+Provide a concise, step-by-step solution focusing on:
+1. What the error means
+2. How to fix it
+3. Steps to prevent it in the future
+
+Keep the response under 300 words and actionable."""
+                            
+                            try:
+                                # Use AWS Bedrock for direct response
+                                bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')
+                                
+                                response = bedrock_client.invoke_model(
+                                    modelId='anthropic.claude-3-5-sonnet-20240620-v1:0',  # Use supported model ID
+                                    body=json.dumps({
+                                        "anthropic_version": "bedrock-2023-05-31",
+                                        "max_tokens": 500,  # Shorter response for speed
+                                        "temperature": 0.1,  # More deterministic
+                                        "messages": [
+                                            {
+                                                "role": "user",
+                                                "content": direct_prompt
+                                            }
+                                        ]
+                                    })
+                                )
+                                
+                                response_body = json.loads(response['body'].read())
+                                direct_response = response_body['content'][0]['text']
+                                
+                                # Add ticket creation offer based on domain type
+                                is_support_domain = processor.is_support_domain if hasattr(processor, 'is_support_domain') else False
+                                if is_support_domain:
+                                    final_response = direct_response + "\n\n❓ This response is based on technical analysis. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
+                                else:
+                                    final_response = direct_response + "\n\n❓ This response is based on technical analysis. If you are not satisfied with this resolution or need further assistance, would you like me to create a support ticket for you?"
+                                
+                                # Store the response in history (user message already saved earlier)
+                                if chat_history_manager:
+                                    # Note: User message already saved at the beginning of this request
+                                    chat_history_manager.add_message(user_id, "assistant", final_response, message.session_id)
+                                else:
+                                    if user_id not in chat_histories:
+                                        chat_histories[user_id] = []
+                                    # Convert ImageData objects for fallback storage
+                                    images_data = []
+                                    if message.images:
+                                        for img in message.images:
+                                            images_data.append({
+                                                "name": img.name,
+                                                "type": img.type,
+                                                "base64": img.base64,
+                                                "preview": img.base64
+                                            })
+                                    
+                                    chat_histories[user_id].extend([
+                                        {"role": "user", "message": message.message, "timestamp": get_ist_time(), "images": images_data},
+                                        {"role": "assistant", "message": final_response, "timestamp": get_ist_time()}
+                                    ])
+                                
+                                print(f"✅ Fast path response generated successfully")
+                                yield await send_final_response(final_response, show_ticket_form=False)
+                                return
+                                
+                            except Exception as e:
+                                print(f"⚠️ Fast path failed, falling back to normal workflow: {e}")
+                                # Continue with normal workflow below
+                        
                     else:
                         error_msg = analysis_result.get('error', 'Unknown error')
                         print(f"❌ Image analysis failed: {error_msg}")
@@ -1022,7 +1232,7 @@ async def send_message_stream(message: StreamingChatMessage):
             
             show_ticket = False  # Initialize ticket flag
             
-            # Convert MongoDB history format to the format expected by IntelligentQueryProcessor
+            # Convert MongoDB history format first (needed for smart ticket detection)
             processed_history = []
             if history:
                 for msg in history:
@@ -1043,6 +1253,113 @@ async def send_message_stream(message: StreamingChatMessage):
                                 'message': msg['message'],
                                 'timestamp': msg.get('timestamp')
                             })
+            
+            # 🧠 SMART KNOWLEDGE SEARCH - Check if user is requesting password reset or database access
+            user_message_lower = message.message.lower()
+            password_keywords = ['password', 'reset', 'database', 'db', 'login', 'access', 'account']
+            is_password_request = any(keyword in user_message_lower for keyword in password_keywords)
+            
+            if is_password_request and any(action in user_message_lower for action in ['reset', 'need', 'help', 'issue', 'problem']):
+                print(f"🧠 DETECTED PASSWORD/DATABASE REQUEST: '{message.message}'")
+                print("🔍 Triggering knowledge base search first...")
+                
+                # Continue with normal knowledge search instead of immediate ticket creation
+                # The system will search knowledge bases and then offer to create a ticket
+                pass
+            
+            # 🚨 PRIORITY: Check if user is in smart conversational ticket flow FIRST
+            print(f"🔍 Checking for smart conversation - User ID: {user_id}")
+            print(f"🔍 Pending tickets keys: {list(pending_tickets.keys())}")
+            if user_id in pending_tickets:
+                pending_type = pending_tickets[user_id].get('type', 'unknown')
+                print(f"🔍 Found pending ticket type: {pending_type}")
+                
+                if pending_type == 'smart_conversational':
+                    print(f"💬 PRIORITY: User responding to smart ticket question: '{message.message}'")
+                    print(f"🔍 Pending ticket context: {pending_tickets[user_id]}")
+                    
+                    try:
+                        from intelligent_auto_ticket_creator import IntelligentAutoTicketCreator
+                        smart_ticket_creator = IntelligentAutoTicketCreator()
+                        
+                        # Continue the smart conversation
+                        ticket_context = pending_tickets[user_id]['context']
+                        print(f"📋 Current ticket context: {ticket_context}")
+                        
+                        continue_result = smart_ticket_creator.continue_smart_ticket_conversation(
+                            user_answer=message.message,
+                            ticket_context=ticket_context
+                        )
+                        
+                        print(f"🔄 Continue result: {continue_result.get('status')}")
+                        
+                        if continue_result.get('status') == 'asking_question':
+                            # Update the pending context
+                            pending_tickets[user_id]['context'] = continue_result['ticket_context']
+                            print(f"❓ Asking next question, updated context stored")
+                            
+                            # Send the next question
+                            next_response = continue_result.get('message')
+                            if chat_history_manager:
+                                chat_history_manager.add_message(user_id, "user", message.message, message.session_id, images=message.images)
+                                chat_history_manager.add_message(user_id, "assistant", next_response, message.session_id)
+                            else:
+                                chat_histories[user_id].append({
+                                    "role": "user",
+                                    "message": message.message,
+                                    "timestamp": get_ist_time()
+                                })
+                                chat_histories[user_id].append({
+                                    "role": "assistant", 
+                                    "message": next_response,
+                                    "timestamp": get_ist_time()
+                                })
+                            
+                            yield await send_final_response(next_response)
+                            return
+                            
+                        elif continue_result.get('status') == 'created':
+                            # Ticket creation completed
+                            print("✅ Smart conversational ticket creation completed!")
+                            
+                            # Clean up pending tickets
+                            del pending_tickets[user_id]
+                            
+                            ticket_response = continue_result.get('message')
+                            if chat_history_manager:
+                                chat_history_manager.add_message(user_id, "user", message.message, message.session_id, images=message.images)
+                                chat_history_manager.add_message(user_id, "assistant", ticket_response, message.session_id)
+                            else:
+                                chat_histories[user_id].append({
+                                    "role": "user",
+                                    "message": message.message,
+                                    "timestamp": get_ist_time()
+                                })
+                                chat_histories[user_id].append({
+                                    "role": "assistant", 
+                                    "message": ticket_response,
+                                    "timestamp": get_ist_time()
+                                })
+                            
+                            yield await send_final_response(
+                                ticket_response,
+                                show_ticket_form=False,
+                                auto_ticket_created=True,
+                                ticket_data=continue_result.get('ticket_data')
+                            )
+                            return
+                        else:
+                            # Error occurred, clean up and continue normally
+                            print(f"❌ Error in smart conversation: {continue_result}")
+                            del pending_tickets[user_id]
+                            
+                    except Exception as e:
+                        print(f"❌ Error in smart conversational ticket: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        # Clean up and continue normally
+                        if user_id in pending_tickets and pending_tickets[user_id].get('type') == 'smart_conversational':
+                            del pending_tickets[user_id]
             
             # Check if user is responding positively to a ticket creation suggestion
             if processed_history and len(processed_history) > 0:
@@ -1083,6 +1400,10 @@ async def send_message_stream(message: StreamingChatMessage):
                     if user_id in pending_tickets:
                         print(f"🔍 Found pending ticket data: {pending_tickets[user_id]}")
                     
+                    # Check if user is in smart conversational ticket creation  
+                    print(f"🔍 Smart conversation already checked at priority level")
+                    
+                    # Regular environment response handling
                     if user_id in pending_tickets and pending_tickets[user_id].get('missing_field') == 'environment':
                         print(f"🌍 User responding to environment question: '{message.message}'")
                         
@@ -1288,14 +1609,131 @@ AUTO-POPULATED FIELDS FROM {ticket_data['category']} CATEGORY:
                         
                         # Extract the original issue from conversation history for ticket creation
                         original_query = "Support assistance requested"
-                        for msg in processed_history:
-                            if msg.get('role') == 'user' and len(msg.get('message', '')) > 10:
-                                original_query = msg.get('message', original_query)
-                                break
+                        previous_ai_response = ""
                         
-                        # Create intelligent ticket automatically since user confirmed
-                        print(f"🤖 Creating intelligent ticket for confirmed request: '{original_query}'")
-                        ticket_result = create_intelligent_ticket_simple(original_query, user_id)
+                        # Find the most recent AI response that contains detailed information
+                        # Look for AI responses in reverse order to get the latest one
+                        print(f"🔍 Searching through {len(processed_history)} messages for AI response with database details")
+                        
+                        for i in range(len(processed_history) - 1, -1, -1):
+                            msg = processed_history[i]
+                            
+                            # Find user queries first
+                            if msg.get('role') == 'user' and len(msg.get('message', '')) > 10:
+                                if 'password' in msg.get('message', '').lower() or 'reset' in msg.get('message', '').lower():
+                                    original_query = msg.get('message', original_query)
+                                    print(f"📝 Found password-related query: '{original_query[:50]}...'")
+                            
+                            # Find AI responses with substantial content that might contain database details
+                            elif msg.get('role') == 'assistant' and len(msg.get('message', '')) > 100:
+                                ai_message = msg.get('message', '')
+                                # Check if this AI response contains database-related information
+                                if any(keyword in ai_message.lower() for keyword in ['hostname', 'database', 'service', 'port', 'production', 'rodb', 'segprd']):
+                                    previous_ai_response = ai_message
+                                    print(f"🤖 Found AI response with database details (length: {len(previous_ai_response)} chars)")
+                                    break
+                        
+                        # Fallback: get the last substantial AI response if none found with database keywords
+                        if not previous_ai_response:
+                            for i in range(len(processed_history) - 1, -1, -1):
+                                msg = processed_history[i]
+                                if msg.get('role') == 'assistant' and len(msg.get('message', '')) > 50:
+                                    previous_ai_response = msg.get('message', '')
+                                    print(f"🤖 Using fallback AI response (length: {len(previous_ai_response)} chars)")
+                                    break
+                        
+                        print(f"📝 Final original query: '{original_query}'")
+                        print(f"🤖 Final AI response preview: '{previous_ai_response[:100]}...'") if previous_ai_response else print("⚠️ No AI response found")
+                        
+                        # Use intelligent ticket creator with AI response context
+                        try:
+                            from intelligent_auto_ticket_creator import IntelligentAutoTicketCreator
+                            smart_ticket_creator = IntelligentAutoTicketCreator()
+                            
+                            # Create smart ticket with context from AI response
+                            smart_result = smart_ticket_creator.create_smart_ticket_with_context(
+                                original_query=original_query,
+                                ai_response=previous_ai_response,
+                                customer_email=user_id
+                            )
+                            
+                            if smart_result.get('status') == 'asking_question':
+                                print(f"❓ Starting conversational ticket creation")
+                                print(f"🔍 Smart result: {smart_result}")
+                                
+                                # Store ticket context for follow-up questions
+                                if 'ticket_context' in smart_result:
+                                    pending_tickets[user_id] = {
+                                        'type': 'smart_conversational',
+                                        'context': smart_result.get('ticket_context'),
+                                        'timestamp': time.time()
+                                    }
+                                else:
+                                    # Store initial context
+                                    pending_tickets[user_id] = {
+                                        'type': 'smart_conversational',
+                                        'context': {
+                                            'category': smart_result.get('category'),
+                                            'priority': smart_result.get('priority'),
+                                            'description': smart_result.get('description'),
+                                            'current_question': smart_result.get('current_question'),
+                                            'remaining_questions': smart_result.get('remaining_questions', []),
+                                            'collected_answers': smart_result.get('collected_answers', {}),
+                                            'original_query': original_query,
+                                            'customer_email': user_id
+                                        },
+                                        'timestamp': time.time()
+                                    }
+                                
+                                print(f"💾 Stored pending ticket for {user_id}: {pending_tickets[user_id]['type']}")
+                                print(f"🔑 Pending tickets keys now: {list(pending_tickets.keys())}")
+                                
+                                # Send conversational question
+                                smart_response = smart_result.get('message', 'Please provide the requested information:')
+                                
+                                if chat_history_manager:
+                                    chat_history_manager.add_message(user_id, "assistant", smart_response, message.session_id)
+                                else:
+                                    chat_histories[user_id].append({
+                                        "role": "assistant", 
+                                        "message": smart_response,
+                                        "timestamp": get_ist_time()
+                                    })
+                                
+                                yield await send_final_response(smart_response)
+                                return
+                            elif smart_result.get('status') == 'created':
+                                # Ticket was created successfully
+                                print("✅ Smart conversational ticket created successfully!")
+                                
+                                ticket_response = smart_result.get('message', 'Ticket created successfully!')
+                                
+                                if chat_history_manager:
+                                    chat_history_manager.add_message(user_id, "assistant", ticket_response, message.session_id)
+                                else:
+                                    chat_histories[user_id].append({
+                                        "role": "assistant", 
+                                        "message": ticket_response,
+                                        "timestamp": get_ist_time()
+                                    })
+                                
+                                yield await send_final_response(
+                                    ticket_response,
+                                    show_ticket_form=False,
+                                    auto_ticket_created=True,
+                                    ticket_data=smart_result.get('ticket_data')
+                                )
+                                return
+                            else:
+                                # Fallback to regular intelligent creation
+                                print("⚠️ Smart questions not generated, falling back to regular intelligent creation")
+                                ticket_result = create_intelligent_ticket_simple(original_query, user_id)
+                        except ImportError:
+                            print("⚠️ Smart ticket creator not available, using regular intelligent creation")
+                            ticket_result = create_intelligent_ticket_simple(original_query, user_id)
+                        except Exception as e:
+                            print(f"❌ Error in smart ticket creation: {e}")
+                            ticket_result = create_intelligent_ticket_simple(original_query, user_id)
                         
                         if ticket_result.get('needs_more_info'):
                             # Need to ask follow-up question for missing field
@@ -1473,19 +1911,15 @@ Is there anything else I can help you with today?"""
                     
                     # Send support workflow status updates
                     yield await send_status_update("🎫 Looking through Zendesk tickets...", "searching-zendesk", "🎫")
-                    await asyncio.sleep(1.5)  # Simulate search time
                     
                     yield await send_status_update("🗂️ Searching SharePoint documents...", "searching-sharepoint", "🗂️")
-                    await asyncio.sleep(1.5)  # Simulate search time
                 else:
                     print(f"📚 Query '{message.message}' -> Using search flow first: JIRA → MindTouch → Comprehensive Response")
                     
                     # Send regular workflow status updates
                     yield await send_status_update("🎫 Looking through JIRA tickets...", "searching-jira", "🎫")
-                    await asyncio.sleep(1.5)  # Simulate search time
                     
                     yield await send_status_update("📚 Searching MindTouch articles...", "searching-mindtouch", "📚")
-                    await asyncio.sleep(1.5)  # Simulate search time
                 
                 yield await send_status_update("🧠 Generating response...", "generating", "🧠")
                 
@@ -1530,14 +1964,27 @@ Is there anything else I can help you with today?"""
                 
                 # Combine text query with image context
                 enhanced_message = message.message
+                search_message = message.message  # Optimized message for search
+                
                 if image_context:
                     enhanced_message = f"{message.message}\n\nAdditional Context from Images:{image_context}"
                     print(f"🖼️ Enhanced query with image context ({len(image_context)} chars)")
+                    
+                    # For search operations, use truncated context for better performance
+                    if len(image_context) > 300:
+                        search_context = image_context[:300] + "..."
+                        search_message = f"{message.message}\n\nImage Context: {search_context}"
+                        print(f"🔍 Using truncated context for search ({len(search_context)} chars)")
+                    else:
+                        search_message = f"{message.message}\n\nImage Context: {image_context}"
                 
                 try:
                     # First, try to find helpful information through search
-                    print("🔍 Searching for information: JIRA → MindTouch → Comprehensive Response")
-                    result = processor.process_query(user_id, enhanced_message, processed_history)
+                    if is_support_domain:
+                        print("🔍 Searching for information: Zendesk → Azure Blob → Comprehensive Response")
+                    else:
+                        print("🔍 Searching for information: JIRA → MindTouch → Comprehensive Response")
+                    result = processor.process_query(user_id, search_message, processed_history)
                     
                     if result and isinstance(result, dict):
                         # Handle process_query result
@@ -1725,17 +2172,29 @@ async def send_message(message: ChatMessage):
         
         # Store message in history (MongoDB or fallback)
         if chat_history_manager:
-            chat_history_manager.add_message(user_id, "user", message.message, message.session_id)
+            chat_history_manager.add_message(user_id, "user", message.message, message.session_id, images=message.images)
             # Get history from MongoDB for context
             history = chat_history_manager.get_history(user_id)
         else:
             # Fallback to in-memory storage
             if user_id not in chat_histories:
                 chat_histories[user_id] = []
+            # Convert ImageData objects to dictionaries for storage
+            images_data = []
+            if message.images:
+                for img in message.images:
+                    images_data.append({
+                        "name": img.name,
+                        "type": img.type, 
+                        "base64": img.base64,
+                        "preview": img.base64
+                    })
+            
             chat_histories[user_id].append({
                 "role": "user",
                 "message": message.message,
-                "timestamp": get_ist_time()
+                "timestamp": get_ist_time(),
+                "images": images_data  # Use converted image data
             })
             history = chat_histories.get(user_id, [])
 
@@ -2081,13 +2540,28 @@ Is there anything else I can help you with today?"""
                 
                 # Combine text query with image context
                 enhanced_message = message.message
+                search_message = message.message  # Separate message for search optimization
+                
                 if image_context:
                     enhanced_message = f"{message.message}\n\nAdditional Context from Images:{image_context}"
                     print(f"🖼️ Enhanced query with image context ({len(image_context)} chars)")
+                    
+                    # For fast mode, just use first 300 chars of image analysis for search
+                    if len(image_context) > 300:
+                        search_context = image_context[:300] + "..."
+                        search_message = f"{message.message}\n\nImage Context: {search_context}"
+                        print(f"🔍 Using truncated context for search ({len(search_context)} chars)")
+                    else:
+                        search_message = f"{message.message}\n\nImage Context: {image_context}"
+                else:
+                    search_message = message.message
                 
-                # First, try to find helpful information through search
-                print("🔍 Searching for information: JIRA → MindTouch → Comprehensive Response")
-                result = processor.process_query(user_id, enhanced_message, processed_history)
+                # Use optimized search message for knowledge base queries
+                if is_support_domain:
+                    print("🔍 Searching for information: Zendesk → Azure Blob → Comprehensive Response")
+                else:
+                    print("🔍 Searching for information: JIRA → MindTouch → Comprehensive Response")
+                result = processor.process_query(user_id, search_message, processed_history)
                 
                 if result and isinstance(result, dict):
                     # Handle process_query result
@@ -2097,6 +2571,17 @@ Is there anything else I can help you with today?"""
                         response_text = result['response']
                     else:
                         response_text = str(result)
+                    
+                    # Check if this is a database/password response that should trigger smart ticket
+                    user_message_lower = message.message.lower()
+                    response_lower = response_text.lower()
+                    
+                    is_database_query = any(keyword in user_message_lower for keyword in ['password', 'reset', 'database', 'db', 'rodb', 'login'])
+                    has_database_info = any(keyword in response_lower for keyword in ['hostname', 'database', 'rodb', 'cloud.modeln.com', 'seagate', 'service'])
+                    
+                    if is_database_query and has_database_info:
+                        print("🧠 DETECTED DATABASE RESPONSE WITH INFORMATION - Adding smart ticket option")
+                        response_text += f"\n\n🎫 **Need help with database access?**\n\nWould you like me to create a NOC ticket for database password reset? I can help gather the specific details needed (hostname, service name, etc.) and submit the request to our technical team."
                     
                     # Check if this is a ticket creation flow or if ticket was created
                     ticket_created_info = result.get('ticket_created')
@@ -2463,7 +2948,6 @@ async def create_ticket_with_answers(request: IntelligentTicketAnswers):
 ===============================
 
 Created automatically using AI analysis and user input
-Creation Method: {ticket_data.get('creation_method', 'intelligent_auto')}
 AI Completeness Score: {ticket_data.get('completeness_score', 1.0):.1%}
 
 Ticket ID: {ticket_data.get('ticket_id', 'N/A')}
@@ -3078,14 +3562,22 @@ async def get_recent_tickets(organization: str):
             'WDC': 'wdc.com',
             'Abbott': 'abbott.com',
             'AbbVie': 'abbvie.com',
-            'Amgen': 'amgen.com'
+            'Amgen': 'amgen.com',
+            'SEAGATE': 'seagate.com',
+            'Seagate': 'seagate.com'
         }
         
-        # Get the domain for the organization
-        domain = org_domain_map.get(organization, None)
+        # Get the domain for the organization (case-insensitive lookup)
+        domain = None
+        for org_name, org_domain in org_domain_map.items():
+            if org_name.lower() == organization.lower():
+                domain = org_domain
+                break
+                
         if not domain:
-            print(f"⚠️ Unknown organization: {organization}")
-            return {"tickets": []}
+            print(f"⚠️ Unknown organization: {organization} - proceeding anyway with organization name")
+            # Don't return empty, let JIRA tool handle the organization search
+            domain = f"{organization.lower()}.com"  # Fallback domain
         
         # Search for recent tickets from this organization
         print(f"🔍 Getting recent {organization} tickets")
