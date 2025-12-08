@@ -1909,17 +1909,27 @@ Is there anything else I can help you with today?"""
                 if is_support_domain:
                     print(f"📚 Query '{message.message}' -> Using support flow: Zendesk → Azure Blob → Comprehensive Response")
                     
-                    # Send support workflow status updates
+                    # Send support workflow status updates with delays
                     yield await send_status_update("🎫 Looking through Zendesk tickets...", "searching-zendesk", "🎫")
+                    await asyncio.sleep(0.5)  # Brief delay to show status
                     
                     yield await send_status_update("🗂️ Searching SharePoint documents...", "searching-sharepoint", "🗂️")
+                    await asyncio.sleep(0.5)
+                    
+                    yield await send_status_update("📚 Searching MindTouch knowledge base...", "searching-mindtouch", "📚")
+                    await asyncio.sleep(0.5)
                 else:
                     print(f"📚 Query '{message.message}' -> Using search flow first: JIRA → MindTouch → Comprehensive Response")
                     
-                    # Send regular workflow status updates
+                    # Send regular workflow status updates with delays
                     yield await send_status_update("🎫 Looking through JIRA tickets...", "searching-jira", "🎫")
+                    await asyncio.sleep(0.5)  # Brief delay to show status
                     
                     yield await send_status_update("📚 Searching MindTouch articles...", "searching-mindtouch", "📚")
+                    await asyncio.sleep(0.5)
+                    
+                    yield await send_status_update("🧠 Analyzing search results...", "analyzing", "🧠")
+                    await asyncio.sleep(0.5)
                 
                 yield await send_status_update("🧠 Generating response...", "generating", "🧠")
                 
