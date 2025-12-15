@@ -2583,6 +2583,7 @@ Is there anything else I can help you with today?"""
                         response_text = str(result)
                     
                     # Check if this is a database/password response that should trigger smart ticket
+                    # Only enhance response if it doesn't already contain ticket creation prompt
                     user_message_lower = message.message.lower()
                     response_lower = response_text.lower()
                     
@@ -2761,6 +2762,57 @@ async def clear_chat_history(user_id: str):
     except Exception as e:
         print(f"❌ Error clearing chat history: {e}")
         raise HTTPException(status_code=500, detail=f"Error clearing chat history: {str(e)}")
+
+
+@app.delete("/api/chat/conversation/{user_id}")
+async def delete_conversation(user_id: str, question: str = None):
+    """Delete a specific conversation identified by the user's question"""
+    try:
+        if not question:
+            raise HTTPException(status_code=400, detail="Question parameter is required")
+        
+        if chat_history_manager:
+            # Delete from MongoDB using the exact question
+            deleted = chat_history_manager.delete_conversation_by_question(user_id, question)
+            if deleted:
+                return {"message": "Conversation deleted successfully"}
+            else:
+                return {"message": "Conversation not found"}
+        else:
+            # Delete from in-memory storage
+            if user_id in chat_histories:
+                messages = chat_histories[user_id]
+                new_messages = []
+                i = 0
+                deleted = False
+                
+                while i < len(messages):
+                    msg = messages[i]
+                    # Match exact user question
+                    if (msg.get('role') == 'user' and 
+                        str(msg.get('content', '')).strip() == str(question).strip()):
+                        # Skip this user message
+                        i += 1
+                        deleted = True
+                        # Skip following assistant messages until next user message
+                        while i < len(messages) and messages[i].get('role') == 'assistant':
+                            i += 1
+                        continue
+                    
+                    new_messages.append(msg)
+                    i += 1
+                
+                chat_histories[user_id] = new_messages
+                if deleted:
+                    return {"message": "Conversation deleted successfully"}
+                else:
+                    return {"message": "Conversation not found"}
+            else:
+                return {"message": "No chat history found for user"}
+                
+    except Exception as e:
+        print(f"❌ Error deleting conversation: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting conversation: {str(e)}")
 
 @app.get("/")
 async def root():

@@ -126,6 +126,19 @@ export const chatService = {
     }
   },
 
+  // Delete a specific conversation by question
+  deleteConversation: async (userId = 'demo_user', question) => {
+    try {
+      const response = await api.delete(`/chat/conversation/${userId}`, {
+        params: { question }
+      })
+      return response.data
+    } catch (error) {
+      console.error('Error deleting conversation:', error)
+      throw error
+    }
+  },
+
   // Initialize the query processor
   initializeProcessor: async (customerEmail) => {
     try {

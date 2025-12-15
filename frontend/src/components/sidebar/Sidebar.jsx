@@ -12,9 +12,11 @@ import {
   Ticket,
   Search,
   Calendar,
-  User
+  User,
+  X
 } from 'lucide-react'
 import { MESSAGE_TYPES } from '../../utils/constants'
+import { chatService } from '../../services/chatService'
 
 const Sidebar = ({ 
   currentUser, 
@@ -523,6 +525,41 @@ const Sidebar = ({
     }
   }
 
+  const deleteConversation = async (conversation, event) => {
+    // Prevent the conversation click event from firing
+    if (event) {
+      event.stopPropagation()
+    }
+    
+    if (window.confirm(`Delete conversation "${conversation.title}"?`)) {
+      try {
+        // Find the first user message in this conversation to use as identifier
+        const firstUserMessage = conversation.messages?.find(msg => msg.type === MESSAGE_TYPES.USER)
+        
+        if (!firstUserMessage) {
+          console.warn('No user message found in conversation to delete')
+          return
+        }
+
+        const result = await chatService.deleteConversation(currentUser.email, firstUserMessage.content)
+        
+        if (result) {
+          // Remove the conversation from local state
+          setConversations(prev => prev.filter(conv => conv.id !== conversation.id))
+          
+          // If this was the selected conversation, clear selection and start new conversation
+          if (selectedConversation === conversation.id) {
+            setSelectedConversation(null)
+            onNewConversation()
+          }
+        }
+      } catch (error) {
+        console.error('Failed to delete conversation:', error)
+        alert('Failed to delete conversation. Please try again.')
+      }
+    }
+  }
+
   const handleConversationClick = (conversation) => {
     console.log('👆 Conversation clicked:', {
       id: conversation.id,
@@ -710,38 +747,51 @@ const Sidebar = ({
           filteredConversations.length > 0 ? (
             <div className="p-2 space-y-1">
               {filteredConversations.map((conversation) => (
-                <button
+                <div
                   key={conversation.id}
-                  onClick={() => handleConversationClick(conversation)}
-                  className={`w-full text-left p-3 rounded-lg transition-all duration-200 group hover:bg-white ${
+                  className={`relative group rounded-lg transition-all duration-200 ${
                     selectedConversation === conversation.id
                       ? 'bg-white shadow-sm border border-gray-200'
-                      : 'hover:shadow-sm'
+                      : 'hover:bg-white hover:shadow-sm'
                   }`}
                 >
-                  <div className="flex items-start justify-between mb-2">
-                    <h4 className="text-sm font-medium text-gray-900 truncate flex-1 pr-2 leading-tight">
-                      {conversation.title || 'New conversation'}
-                    </h4>
-                    <span className="text-xs text-gray-500 whitespace-nowrap">
-                      {formatTimestamp(conversation.timestamp)}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-600 truncate mb-2">
-                    {conversation.lastMessage || 'No messages yet'}
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-1">
-                      <MessageCircle className="w-3 h-3 text-gray-400" />
-                      <span className="text-xs text-gray-500">
-                        {conversation.messageCount || 0}
+                  <button
+                    onClick={() => handleConversationClick(conversation)}
+                    className="w-full text-left p-3 rounded-lg transition-all duration-200"
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <h4 className="text-sm font-medium text-gray-900 truncate flex-1 pr-2 leading-tight">
+                        {conversation.title || 'New conversation'}
+                      </h4>
+                      <span className="text-xs text-gray-500 whitespace-nowrap">
+                        {formatTimestamp(conversation.timestamp)}
                       </span>
                     </div>
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Clock className="w-3 h-3 text-gray-400" />
+                    <p className="text-xs text-gray-600 truncate mb-2">
+                      {conversation.lastMessage || 'No messages yet'}
+                    </p>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-1">
+                        <MessageCircle className="w-3 h-3 text-gray-400" />
+                        <span className="text-xs text-gray-500">
+                          {conversation.messageCount || 0}
+                        </span>
+                      </div>
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Clock className="w-3 h-3 text-gray-400" />
+                      </div>
                     </div>
-                  </div>
-                </button>
+                  </button>
+                  
+                  {/* Delete button - only visible on hover */}
+                  <button
+                    onClick={(e) => deleteConversation(conversation, e)}
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md hover:bg-red-100 text-gray-400 hover:text-red-600"
+                    title="Delete conversation"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               ))}
             </div>
           ) : (
