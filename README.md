@@ -1,6 +1,23 @@
-# Intelligent Query Processing System
+# Nquiry - Intelligent Query Processing System
 
 An AI-powered query processing system that automatically routes user queries to appropriate knowledge sources (JIRA, Confluence, MindTouch), performs semantic search, and provides intelligent responses using AWS Bedrock LLM.
+
+**🚧 Migration Status**: This project is transitioning from a Streamlit-based application to a modern React + FastAPI architecture for better performance, scalability, and user experience.
+
+## 🏗️ Project Architecture
+
+### **Current Implementation (Python)**
+- **Core Engine**: Python-based intelligent query processor
+- **AI Integration**: AWS Bedrock LLM for classification and response formatting
+- **Knowledge Sources**: JIRA, Confluence, MindTouch integration
+- **Search**: Semantic search with sentence transformers and vector storage
+- **Workflow**: LangGraph orchestration
+
+### **Future Implementation (React + FastAPI)**
+- **Frontend**: React 18 with Vite and Tailwind CSS
+- **Backend**: FastAPI with modern async architecture
+- **API**: RESTful design for better client-server separation
+- **Deployment**: Scalable microservices architecture
 
 ## 🚀 Features
 
@@ -14,332 +31,60 @@ An AI-powered query processing system that automatically routes user queries to 
 - **Smart Response Formatting**: LLM-powered response formatting for user-friendly output
 - **Automatic Ticket Creation**: Creates support tickets when no relevant information is found
 - **LangGraph Workflow**: Orchestrates the entire process using LangGraph state management
+- **Voice Input/Output**: Speech-to-text and text-to-speech capabilities
+- **Chat History**: Persistent conversation management
 
 ## 📋 Prerequisites
 
 - Python 3.8+
+- Node.js 16+ (for React frontend)
 - AWS Bedrock access with Claude model permissions
 - MCP Atlassian server setup (for JIRA/Confluence)
 - MindTouch API access (optional)
 
-## 🛠️ Installation
+## 🛠️ Installation & Setup
+
+### Current Python Application
 
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
-   # nQuiry - React + FastAPI Migration
-
-This project contains the migrated version of the Streamlit nQuiry chatbot, now built with React frontend and FastAPI backend.
-
-## 🏗️ Architecture Overview
-
-### **Frontend (React)**
-- **Framework**: React 18 with Vite
-- **Styling**: Tailwind CSS
-- **Components**: Modular chat interface, sidebar, forms
-- **Features**: Voice input, chat history, ticket creation
-- **Port**: `http://localhost:3000`
-
-### **Backend (FastAPI)**
-- **Framework**: FastAPI with uvicorn
-- **API**: RESTful endpoints for chat, users, tickets
-- **Storage**: In-memory (demo) - easily extensible to MongoDB
-- **Features**: Chat processing, user management, ticket creation
-- **Port**: `http://localhost:8000`
-
-## 🚀 Quick Start
-
-### 1. Setup Backend (FastAPI)
-
-```bash
-# Navigate to backend directory
-cd backend
-
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-# Windows:
-venv\Scripts\activate
-# macOS/Linux:
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Set up environment variables
-copy .env.example .env
-# Edit .env file with your configuration
-
-# Run the backend server
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### 2. Setup Frontend (React)
-
-```bash
-# Open new terminal and navigate to frontend directory
-cd frontend
-
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-```
-
-### 3. Access the Application
-
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
-
-## 🔌 How React and FastAPI Connect
-
-### **Proxy Configuration**
-The React development server is configured to proxy API requests to the FastAPI backend:
-
-```javascript
-// vite.config.js
-export default defineConfig({
-  server: {
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      }
-    }
-  }
-})
-```
-
-### **API Service**
-The React app uses axios to communicate with the backend:
-
-```javascript
-// src/services/api.js
-const API_BASE_URL = 'http://localhost:8000/api'
-
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: { 'Content-Type': 'application/json' }
-})
-```
-
-### **CORS Configuration**
-FastAPI is configured to accept requests from the React development server:
-
-```python
-# app/main.py
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-```
-
-## 📡 API Endpoints
-
-### **Chat Endpoints**
-- `POST /api/chat` - Send message to chatbot
-- `GET /api/chat/history/{user_id}` - Get chat history
-- `POST /api/chat/initialize` - Initialize processor
-- `DELETE /api/chat/history/{user_id}` - Clear history
-
-### **User Endpoints**
-- `GET /api/users` - Get all organizations
-- `GET /api/users/{user_id}` - Get specific user
-
-### **Ticket Endpoints**
-- `POST /api/tickets/create` - Create support ticket
-- `GET /api/tickets/{ticket_id}` - Get ticket details
-- `GET /api/tickets` - List tickets
-
-## 🧩 Component Structure
-
-### **React Components**
-```
-src/
-├── components/
-│   ├── chat/
-│   │   ├── ChatContainer.jsx     # Main chat display
-│   │   ├── ChatMessage.jsx       # Individual message
-│   │   └── ChatInput.jsx         # Input form with voice
-│   ├── sidebar/
-│   │   └── Sidebar.jsx           # User selection & history
-│   └── forms/
-│       └── TicketForm.jsx        # Support ticket creation
-├── hooks/
-│   ├── useChat.js                # Chat state management
-│   └── useVoice.js               # Voice input/output
-├── services/
-│   ├── api.js                    # Axios configuration
-│   └── chatService.js            # Chat API calls
-└── pages/
-    └── ChatPage.jsx              # Main application page
-```
-
-## 🎨 Features Migrated from Streamlit
-
-✅ **Chat Interface**
-- Real-time messaging
-- User/bot message styling
-- Typing indicators
-- Message timestamps
-
-✅ **Voice Input**
-- Speech-to-text (Web Speech API)
-- Text-to-speech
-- Recording indicators
-
-✅ **User Management**
-- Organization selection
-- User context preservation
-- Session management
-
-✅ **Chat History**
-- Conversation persistence
-- History navigation
-- Conversation threads
-
-✅ **Ticket Creation**
-- Support ticket forms
-- Priority/category selection
-- Escalation options
-
-✅ **Responsive Design**
-- Modern Tailwind CSS styling
-- Mobile-friendly layout
-- Smooth animations
-
-## 🔧 Development Tips
-
-### **Running Both Servers**
-You need both servers running simultaneously:
-
-1. **Terminal 1** (Backend):
-```bash
-cd backend
-python -m uvicorn app.main:app --reload --port 8000
-```
-
-2. **Terminal 2** (Frontend):
-```bash
-cd frontend
-npm run dev
-```
-
-### **Making Changes**
-- **Frontend changes**: Auto-reload with Vite
-- **Backend changes**: Auto-reload with uvicorn `--reload` flag
-- **API changes**: Check http://localhost:8000/docs for updated documentation
-
-### **Debugging**
-- **Frontend**: Browser DevTools + React DevTools
-- **Backend**: FastAPI automatic interactive docs at `/docs`
-- **Network**: Check Network tab for API request/response
-
-## 🚀 Production Deployment
-
-### **Frontend (React)**
-```bash
-cd frontend
-npm run build
-# Deploy dist/ folder to your hosting service
-```
-
-### **Backend (FastAPI)**
-```bash
-cd backend
-# Use gunicorn for production
-pip install gunicorn
-gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker
-```
-
-### **Environment Variables**
-Update `.env` for production:
-- Set proper `SECRET_KEY`
-- Configure database connections
-- Update CORS origins
-- Add authentication if needed
-
-## 🔄 Migration Benefits
-
-### **From Streamlit to React + FastAPI:**
-
-✅ **Better Performance**
-- Faster loading and interactions
-- Optimized API calls
-- Better state management
-
-✅ **Enhanced UX**
-- Modern, responsive design
-- Smooth animations
-- Better mobile experience
-
-✅ **Scalability**
-- Separate frontend/backend deployment
-- API can serve multiple clients
-- Better caching strategies
-
-✅ **Development Experience**
-- Hot module replacement
-- Better debugging tools
-- Component-based architecture
-
-✅ **Production Ready**
-- Proper API documentation
-- Better error handling
-- Scalable architecture
-
-## 🛠️ Next Steps
-
-1. **Database Integration**: Replace in-memory storage with MongoDB
-2. **Authentication**: Add user authentication and authorization
-3. **Real AI Integration**: Connect to OpenAI or other AI services
-4. **Testing**: Add unit and integration tests
-5. **Monitoring**: Add logging and performance monitoring
-6. **Deployment**: Set up CI/CD pipelines
-
-## 🆘 Troubleshooting
-
-### **Common Issues:**
-
-**CORS Errors:**
-- Ensure FastAPI CORS is configured correctly
-- Check React proxy configuration
-
-**API Connection Failed:**
-- Verify both servers are running
-- Check ports 3000 (React) and 8000 (FastAPI)
-- Ensure no firewall blocking
-
-**Module Import Errors:**
-- Ensure virtual environment is activated (backend)
-- Run `npm install` (frontend)
-- Check Python/Node versions
-
-**Voice Input Not Working:**
-- Requires HTTPS in production
-- Check browser speech recognition support
-- Ensure microphone permissions
+   cd nquiry-react
    ```
 
-2. **Install dependencies**:
+2. **Create virtual environment**:
+   ```bash
+   python -m venv venv
+   
+   # Activate virtual environment
+   # Windows:
+   venv\Scripts\activate
+   # macOS/Linux:
+   source venv/bin/activate
+   ```
+
+3. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Set up environment variables**:
+4. **Set up environment variables**:
    ```bash
    copy .env.example .env
    ```
    Edit `.env` with your actual credentials.
 
-4. **Configure MCP Atlassian server** (for JIRA/Confluence integration):
+5. **Configure MCP Atlassian server** (for JIRA/Confluence integration):
    Follow the MCP Atlassian server setup instructions.
+
+6. **Run the application**:
+   ```bash
+   python main.py
+   ```
+
+### Future React + FastAPI Migration
+
+The system is being migrated to a modern React + FastAPI architecture:
 
 ## 🔧 Configuration
 
@@ -556,26 +301,74 @@ Run the application and check the system status display for component health.
 - **API Keys**: Secured through environment variable access
 - **Local Storage**: Vector database stored locally (no cloud dependencies)
 
+## 🚀 Future Development (React + FastAPI Migration)
+
+### Planned Architecture
+- **Frontend**: React 18 with Vite and Tailwind CSS
+- **Backend**: FastAPI with async architecture
+- **API Design**: RESTful endpoints for scalability
+- **Database**: MongoDB integration for persistent storage
+- **Authentication**: JWT-based user authentication
+- **Deployment**: Docker containerization and microservices
+
+### Migration Benefits
+- 🔧 **Better Performance**: Faster loading and optimized API calls
+- 🎨 **Enhanced UX**: Modern responsive design with smooth animations
+- 📈 **Scalability**: Separate frontend/backend deployment capability
+- 🛠️ **Developer Experience**: Hot module replacement and better debugging tools
+- 🏭 **Production Ready**: Proper API documentation and error handling
+
+## 🛠️ Development Roadmap
+
+### Phase 1: Core Migration
+- [ ] FastAPI backend setup with core endpoints
+- [ ] React frontend with chat interface
+- [ ] WebSocket integration for real-time chat
+- [ ] Voice input/output implementation
+
+### Phase 2: Advanced Features
+- [ ] User authentication and authorization
+- [ ] Database integration (MongoDB)
+- [ ] Advanced semantic search with vector databases
+- [ ] Real-time collaboration features
+
+### Phase 3: Production & Scaling
+- [ ] Docker containerization
+- [ ] CI/CD pipeline setup
+- [ ] Monitoring and logging integration
+- [ ] Performance optimization and caching
+
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Submit a pull request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## 📄 License
 
-[Add your license information here]
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🆘 Support
 
 For support and questions:
-1. Check the troubleshooting section
-2. Review system status for component health
-3. Create a support ticket through the system
-4. Contact the development team
+
+1. **Documentation**: Check the troubleshooting section above
+2. **System Status**: Review system status for component health
+3. **Issues**: Create a GitHub issue for bug reports or feature requests
+4. **Discussions**: Use GitHub Discussions for questions and community support
+
+## 🙏 Acknowledgments
+
+- AWS Bedrock for advanced AI capabilities
+- LangGraph for workflow orchestration
+- Sentence Transformers for semantic search
+- MCP Atlassian for enterprise integration
+- The open-source community for amazing tools and libraries
 
 ---
 
-Built with ❤️ using LangGraph, AWS Bedrock, and Sentence Transformers
+**Built with ❤️ using LangGraph, AWS Bedrock, and Sentence Transformers**
+
+*Ready for the future with React + FastAPI migration*
