@@ -2,29 +2,32 @@
 
 An AI-powered query processing system that automatically routes user queries to appropriate knowledge sources (JIRA, Confluence, MindTouch), performs semantic search, and provides intelligent responses using AWS Bedrock LLM.
 
-**🚧 Migration Status**: This project is transitioning from a Streamlit-based application to a modern React + FastAPI architecture for better performance, scalability, and user experience.
+**✅ Current Implementation**: Modern React + FastAPI architecture providing optimal performance, scalability, and user experience.
 
 ## 🏗️ Project Architecture
 
-### **Current Implementation (Python)**
+### **Frontend (React)**
+- **Framework**: React 18 with Vite for fast development
+- **Styling**: Tailwind CSS for modern responsive design
+- **UI Components**: Headless UI for accessible components
+- **Icons**: Lucide React for consistent iconography
+- **HTTP Client**: Axios for API communication
+
+### **Backend (FastAPI)**
+- **Framework**: FastAPI with modern async architecture
 - **Core Engine**: Python-based intelligent query processor
 - **AI Integration**: AWS Bedrock LLM for classification and response formatting
 - **Knowledge Sources**: JIRA, Confluence, MindTouch integration
 - **Search**: Semantic search with sentence transformers and vector storage
 - **Workflow**: LangGraph orchestration
-
-### **Future Implementation (React + FastAPI)**
-- **Frontend**: React 18 with Vite and Tailwind CSS
-- **Backend**: FastAPI with modern async architecture
-- **API**: RESTful design for better client-server separation
-- **Deployment**: Scalable microservices architecture
+- **API**: RESTful design with automatic OpenAPI documentation
 
 ## 🚀 Features
 
 - **Intelligent Query Classification**: Uses AWS Bedrock LLM to classify queries and route them to appropriate knowledge sources
 - **Multi-Source Integration**: 
-  - JIRA (via MCP Atlassian server)
-  - Confluence (via MCP Atlassian server) 
+  - JIRA (via REST API)
+  - Confluence (via REST API) 
   - MindTouch (via REST API)
 - **Semantic Search**: Uses sentence transformers and cosine similarity for accurate content matching
 - **Vector Storage**: Stores embeddings in local vector database for fast similarity search
@@ -39,12 +42,13 @@ An AI-powered query processing system that automatically routes user queries to 
 - Python 3.8+
 - Node.js 16+ (for React frontend)
 - AWS Bedrock access with Claude model permissions
-- MCP Atlassian server setup (for JIRA/Confluence)
+- JIRA instance with API access (for JIRA integration)
+- Confluence instance with API access (for Confluence integration)
 - MindTouch API access (optional)
 
 ## 🛠️ Installation & Setup
 
-### Current Python Application
+### Backend Setup (FastAPI)
 
 1. **Clone the repository**:
    ```bash
@@ -63,7 +67,7 @@ An AI-powered query processing system that automatically routes user queries to 
    source venv/bin/activate
    ```
 
-3. **Install dependencies**:
+3. **Install Python dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
@@ -74,17 +78,32 @@ An AI-powered query processing system that automatically routes user queries to 
    ```
    Edit `.env` with your actual credentials.
 
-5. **Configure MCP Atlassian server** (for JIRA/Confluence integration):
-   Follow the MCP Atlassian server setup instructions.
-
-6. **Run the application**:
+5. **Run the FastAPI server**:
    ```bash
-   python main.py
+   python fastapi_server.py
    ```
 
-### Future React + FastAPI Migration
+### Frontend Setup (React)
 
-The system is being migrated to a modern React + FastAPI architecture:
+1. **Navigate to frontend directory**:
+   ```bash
+   cd frontend
+   ```
+
+2. **Install Node.js dependencies**:
+   ```bash
+   npm install
+   ```
+
+3. **Start the development server**:
+   ```bash
+   npm run dev
+   ```
+
+4. **Access the application**:
+   - Frontend: http://localhost:5173
+   - Backend API: http://localhost:8000
+   - API Documentation: http://localhost:8000/docs
 
 ## 🔧 Configuration
 
@@ -98,15 +117,17 @@ aws_access_key_id=your-aws-access-key-id
 aws_secret_access_key=your-aws-secret-access-key
 aws_session_token=your-aws-session-token
 
-# JIRA Configuration
+# JIRA Configuration (REST API)
 JIRA_URL=https://yourcompany.atlassian.net
 JIRA_API_TOKEN=your-jira-api-token
-JIRA_USER=your-email@company.com
+JIRA_USERNAME=your-email@company.com
 
-# Confluence Configuration
+# Confluence Configuration (REST API)
 CONFLUENCE_URL=https://yourcompany.atlassian.net/wiki
+CONFLUENCE_USERNAME=your-email@company.com
+CONFLUENCE_API_TOKEN=your-confluence-api-token
 
-# MindTouch Configuration
+# MindTouch Configuration (REST API)
 MINDTOUCH_BASE_URL=https://your-mindtouch-site.com/api
 MINDTOUCH_API_KEY=your-mindtouch-api-key
 ```
@@ -122,32 +143,44 @@ The `config.py` file contains system-wide settings:
 
 ## 🚀 Usage
 
-### Command Line Interface
+### Web Application
 
-Run the main application:
+1. **Start both servers**:
+   ```bash
+   # Terminal 1: Start FastAPI backend
+   python fastapi_server.py
+   
+   # Terminal 2: Start React frontend
+   cd frontend
+   npm run dev
+   ```
+
+2. **Access the application**:
+   - Open your browser to http://localhost:5173
+   - Use the chat interface to ask questions
+   - The system will intelligently route queries and provide responses
+
+### API Usage
+
+The FastAPI backend provides REST endpoints:
+
+```python
+import requests
+
+# Send a query to the API
+response = requests.post("http://localhost:8000/query", 
+                        json={"query": "How do I reset my password?"})
+
+result = response.json()
+print(result['response'])
+```
+
+### Command Line Interface (Legacy)
+
+You can still run the core system directly:
 
 ```bash
 python main.py
-```
-
-The system will:
-1. Show system status for all components
-2. Prompt for user queries
-3. Process queries through the complete workflow
-4. Display intelligent responses or create tickets
-
-### Programmatic Usage
-
-```python
-from main import IntelligentQueryProcessor
-
-# Initialize the processor
-processor = IntelligentQueryProcessor()
-
-# Process a query
-result = processor.process_query("How do I reset my password?")
-
-print(result['response'])
 ```
 
 ## 🔄 Workflow
@@ -181,37 +214,50 @@ The system follows this LangGraph workflow:
 ## 📁 Project Structure
 
 ```
-nquiry/
-├── main.py                 # Main LangGraph application
-├── config.py              # Configuration settings
-├── llm_classifier.py      # LLM-based query classification
-├── semantic_search.py     # Semantic search with embeddings
-├── response_formatter.py  # LLM-powered response formatting
-├── ticket_creator.py      # Support ticket creation
-├── requirements.txt       # Python dependencies
-├── .env.example          # Environment variables template
-├── vector_store/         # Local vector database storage
+nquiry-react/
+├── main.py                    # Core LangGraph application
+├── fastapi_server.py          # FastAPI backend server
+├── config.py                  # Configuration settings
+├── semantic_search.py         # Semantic search with embeddings
+├── response_formatter.py      # LLM-powered response formatting
+├── ticket_creator.py          # Support ticket creation
+├── chat_history_manager.py    # Chat history management
+├── requirements.txt           # Python dependencies
+├── .env.example              # Environment variables template
+├── vector_store/             # Local vector database storage
+├── frontend/                 # React frontend application
+│   ├── src/
+│   │   ├── App.jsx          # Main React component
+│   │   ├── components/      # UI components
+│   │   ├── pages/          # Page components
+│   │   ├── services/       # API service layer
+│   │   └── hooks/          # Custom React hooks
+│   ├── package.json        # Node.js dependencies
+│   └── vite.config.js      # Vite build configuration
 └── tools/
-    ├── jira_tool.py      # JIRA integration wrapper
-    ├── confluence_tool.py # Confluence integration wrapper
-    └── mindtouch_tool.py  # MindTouch API integration
+    ├── jira_tool.py          # JIRA integration wrapper
+    ├── confluence_tool.py    # Confluence integration wrapper
+    └── mindtouch_tool.py     # MindTouch API integration
 ```
 
 ## 🔌 Integration Details
 
-### JIRA & Confluence (MCP Atlassian)
+### JIRA & Confluence (REST API)
 
-The system uses placeholder implementations for JIRA and Confluence that can be easily replaced with actual MCP Atlassian server calls:
+The system uses direct REST API integration for JIRA and Confluence:
 
 ```python
-# Example of real MCP integration (replace placeholder code)
-from mcp_client import MCPClient
+# JIRA integration example
+from tools.jira_tool import JiraTool
 
-# In jira_tool.py
-result = mcp_client.call("mcp_mcp-atlassian_jira_search", {
-    "jql": f'text ~ "{query}"',
-    "limit": limit
-})
+jira_tool = JiraTool()
+issues = jira_tool.search_issues(query, limit=20)
+
+# Confluence integration example  
+from tools.confluence_tool import ConfluenceTool
+
+confluence_tool = ConfluenceTool()
+pages = confluence_tool.search_pages(query, limit=20)
 ```
 
 ### MindTouch
@@ -269,10 +315,11 @@ Modify `SIMILARITY_THRESHOLD` in `config.py` (default: 0.75):
    - Check Bedrock model permissions
    - Ensure correct region configuration
 
-2. **MCP Connection Failed**
-   - Verify MCP Atlassian server is running
-   - Check JIRA/Confluence credentials
-   - Test connection manually
+2. **JIRA/Confluence API Connection Failed**
+   - Verify JIRA/Confluence credentials in `.env`
+   - Check API token permissions
+   - Test connection manually with curl or Postman
+   - Ensure correct base URLs are configured
 
 3. **MindTouch API Errors**
    - Verify API key and base URL
@@ -301,42 +348,44 @@ Run the application and check the system status display for component health.
 - **API Keys**: Secured through environment variable access
 - **Local Storage**: Vector database stored locally (no cloud dependencies)
 
-## 🚀 Future Development (React + FastAPI Migration)
+## ✨ Current Features
 
-### Planned Architecture
-- **Frontend**: React 18 with Vite and Tailwind CSS
-- **Backend**: FastAPI with async architecture
-- **API Design**: RESTful endpoints for scalability
-- **Database**: MongoDB integration for persistent storage
-- **Authentication**: JWT-based user authentication
-- **Deployment**: Docker containerization and microservices
+### Frontend (React)
+- 🎨 **Modern UI**: Clean, responsive design with Tailwind CSS
+- 💬 **Real-time Chat**: Interactive chat interface for natural conversations
+- 📱 **Mobile Responsive**: Optimized for all device sizes
+- ⚡ **Fast Performance**: Vite-powered development with hot module replacement
+- 🔧 **Component Library**: Reusable UI components with Headless UI
+- 🎯 **Accessibility**: Built with accessibility best practices
 
-### Migration Benefits
-- 🔧 **Better Performance**: Faster loading and optimized API calls
-- 🎨 **Enhanced UX**: Modern responsive design with smooth animations
-- 📈 **Scalability**: Separate frontend/backend deployment capability
-- 🛠️ **Developer Experience**: Hot module replacement and better debugging tools
-- 🏭 **Production Ready**: Proper API documentation and error handling
+### Backend (FastAPI)
+- 🚀 **High Performance**: Async FastAPI server with automatic API documentation
+- 🔄 **RESTful API**: Well-structured endpoints for all functionality
+- 📊 **Real-time Processing**: Streaming responses for better user experience
+- 🔒 **CORS Support**: Properly configured for frontend-backend communication
+- 📝 **Auto Documentation**: Swagger UI available at `/docs`
+- 🏗️ **Modular Architecture**: Clean separation of concerns
 
 ## 🛠️ Development Roadmap
 
-### Phase 1: Core Migration
-- [ ] FastAPI backend setup with core endpoints
-- [ ] React frontend with chat interface
+### Phase 1: Enhanced Features
+- [ ] User authentication and authorization
 - [ ] WebSocket integration for real-time chat
 - [ ] Voice input/output implementation
+- [ ] Advanced filtering and search options
 
-### Phase 2: Advanced Features
-- [ ] User authentication and authorization
-- [ ] Database integration (MongoDB)
-- [ ] Advanced semantic search with vector databases
-- [ ] Real-time collaboration features
+### Phase 2: Enterprise Features
+- [ ] Database integration (MongoDB/PostgreSQL)
+- [ ] Multi-tenant organization support
+- [ ] Advanced analytics and reporting
+- [ ] Custom knowledge base management
 
 ### Phase 3: Production & Scaling
 - [ ] Docker containerization
 - [ ] CI/CD pipeline setup
 - [ ] Monitoring and logging integration
 - [ ] Performance optimization and caching
+- [ ] Load balancing and high availability
 
 ## 🤝 Contributing
 
@@ -364,11 +413,11 @@ For support and questions:
 - AWS Bedrock for advanced AI capabilities
 - LangGraph for workflow orchestration
 - Sentence Transformers for semantic search
-- MCP Atlassian for enterprise integration
+- Atlassian REST APIs for enterprise integration
 - The open-source community for amazing tools and libraries
 
 ---
 
-**Built with ❤️ using LangGraph, AWS Bedrock, and Sentence Transformers**
 
-*Ready for the future with React + FastAPI migration*
+
+*Modern architecture for intelligent query processing*
